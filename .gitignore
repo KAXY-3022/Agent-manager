@@ -1,0 +1,27 @@
+# Local configuration and secrets
+.env
+*.env
+!*.env.example
+gitea-webhook.env
+
+# Local runtime state
+tasks/
+logs/
+state/
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.db
+*.log
+
+# Python/runtime caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
