@@ -3364,6 +3364,14 @@ class WebhookStateStore:
                 (status, int(time.time()), key),
             )
 
+    def job_status_for_key(self, key: str) -> str:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT status FROM jobs WHERE dedupe_key = ?",
+                (key,),
+            ).fetchone()
+        return str(row[0] or "") if row else ""
+
     def recover_running_jobs(self) -> int:
         now = int(time.time())
         with self.connect() as conn:
@@ -4332,6 +4340,10 @@ class WebhookBridge:
                     continue
 
                 if can_queue_pr_comment_reply(repo_slug_value, number, previous_snapshot, snapshot, expected_usernames):
+                    base_key = f"{repo_slug_value}#{number}@{snapshot.get('head_sha') or ''}"
+                    if self.store.job_status_for_key(base_key) in {"queued", "running"}:
+                        events.append(f"{repo_slug_value} PR#{number}: skipped comment reply while head review is active")
+                        continue
                     comment_hash = tracking_hashes(snapshot)[2]
                     response = self._queue_pr_review_from_pr_data(
                         repo_slug_value,
@@ -4493,7 +4505,7 @@ class WebhookBridge:
             return
         if job.kind == "pr_review":
             args.pull = str(job.number)
-            args.post = self.config.pr_auto_post
+            args.post = self.config.pr_auto_post and not is_comment_job(job)
             args.max_diff_chars = 60000
             exit_code = command_pr_review(args)
             if exit_code:

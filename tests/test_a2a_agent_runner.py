@@ -2,6 +2,7 @@ import json
 import threading
 import tempfile
 import unittest
+from dataclasses import replace
 from unittest import mock
 from pathlib import Path
 
@@ -1292,6 +1293,33 @@ Still valid and should be assigned.
             self.assertEqual(bridge._model_policy_for_job(issue_job), ("gpt-5.5", "xhigh"))
             self.assertEqual(bridge._model_policy_for_job(pr_job), ("gpt-5.5", "high"))
             self.assertEqual(bridge._model_policy_for_job(comment_job), ("gpt-5.5", "medium"))
+
+    def test_comment_triggered_pr_review_job_does_not_auto_post(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = replace(self.make_config(tmpdir), pr_auto_post=True)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="comment-1",
+                event_type="pr_comment_active",
+                dedupe_key="ExampleOrg/project-core#460@abc123:comment-abcdef",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=460,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/460",
+                head_sha="abc123",
+            )
+
+            captured = {}
+            original_command_pr_review = a2a_runner.command_pr_review
+            a2a_runner.command_pr_review = lambda args: captured.setdefault("post", args.post) or 0
+            try:
+                bridge._run_job(job)
+            finally:
+                a2a_runner.command_pr_review = original_command_pr_review
+
+        self.assertFalse(captured["post"])
 
     def test_address_in_use_message_explains_duplicate_runner(self):
         message = a2a_runner.address_in_use_message("webhook listener", "127.0.0.1", 48731)
