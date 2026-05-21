@@ -1093,19 +1093,23 @@
       const review = item.review_status || {};
       if (item.item_type === "issue") return "";
       if (review.reviewed && !review.stale) return "reviewed";
-      if (rel.created_by_me || rel.assigned_to_me) {
+      if (rel.created_by_me) {
         if (!isWipTitle(item) && hasReviewRequest(item)) return "under_review";
         return "wip";
       }
       if (rel.review_requested_from_me) return "reviewing";
+      if (rel.assigned_to_me) {
+        if (!isWipTitle(item) && hasReviewRequest(item)) return "under_review";
+        return "wip";
+      }
       if (rel.participating) return "reviewing";
       return "wip";
     };
     const cardRelationClass = (item) => {
       const rel = item.relationships || {};
       if (rel.created_by_me) return "rel-created";
-      if (rel.assigned_to_me) return "rel-assigned";
       if (rel.review_requested_from_me) return "rel-review";
+      if (rel.assigned_to_me) return "rel-assigned";
       if (rel.participating) return "rel-participating";
       return "rel-linked";
     };
