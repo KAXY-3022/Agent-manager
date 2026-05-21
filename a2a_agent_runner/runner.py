@@ -2781,6 +2781,11 @@ def job_tracking_item_key(dedupe_key: str, kind: str) -> str | None:
     return tracking_item_key(repo, item_type, number)
 
 
+def job_active_item_key(job: WebhookJob) -> str:
+    item_type = {"issue": "issue", "issue_stale_scan": "issue", "pr_review": "pull_request"}.get(job.kind, job.kind)
+    return tracking_item_key(f"{job.owner}/{job.repo}", item_type, job.number)
+
+
 def job_kind_label(kind: str) -> str:
     if kind == "pr_review":
         return "PR review"
@@ -3467,6 +3472,30 @@ class WebhookStateStore:
             ).fetchone()
         return str(row[0] or "") if row else ""
 
+    def active_job_for_item(self, item_key: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT dedupe_key, delivery_id, kind, status, source_url, updated_at
+                FROM jobs
+                WHERE status IN ('queued', 'running')
+                ORDER BY updated_at DESC
+                LIMIT 200
+                """,
+            ).fetchall()
+        for row in rows:
+            if job_tracking_item_key(str(row[0] or ""), str(row[2] or "")) != item_key:
+                continue
+            return {
+                "dedupe_key": row[0],
+                "delivery_id": row[1],
+                "kind": row[2],
+                "status": row[3],
+                "source_url": row[4],
+                "updated_at": row[5],
+            }
+        return None
+
     def recover_running_jobs(self) -> int:
         now = int(time.time())
         with self.connect() as conn:
@@ -4089,6 +4118,15 @@ class WebhookBridge:
     def process_job(self, job: WebhookJob) -> None:
         lock = self._lock_for_job(job)
         with lock:
+            current_status = self.store.job_status_for_key(job.dedupe_key)
+            if current_status != "queued":
+                logging.info(
+                    "skipping non-queued job kind=%s key=%s status=%s",
+                    job.kind,
+                    job.dedupe_key,
+                    current_status or "missing",
+                )
+                return
             self.store.update_delivery(job.delivery_id, "running", job.dedupe_key)
             self.store.update_job(job.dedupe_key, "running")
             try:
@@ -4780,6 +4818,20 @@ class WebhookBridge:
                 self.jobs.put(job)
                 return WebhookResponse(202, {"status": "queued", "job": job.kind, "key": job.dedupe_key, "retry": True})
             return WebhookResponse(200, {"status": "duplicate", "delivery_id": job.delivery_id})
+        active_job = self.store.active_job_for_item(job_active_item_key(job))
+        if active_job and active_job.get("dedupe_key") != job.dedupe_key:
+            reason = f"active job {active_job.get('dedupe_key')} is {active_job.get('status')}"
+            self.store.update_delivery(job.delivery_id, "ignored", reason)
+            logging.info("ignored job kind=%s key=%s reason=%s", job.kind, job.dedupe_key, reason)
+            return WebhookResponse(
+                200,
+                {
+                    "status": "ignored",
+                    "reason": "active item job",
+                    "key": job.dedupe_key,
+                    "active_key": active_job.get("dedupe_key"),
+                },
+            )
         reservation = self.store.reserve_or_retry_job(job, self.config.retry_failed_limit)
         if reservation == "duplicate":
             self.store.update_delivery(job.delivery_id, "ignored", f"duplicate job {job.dedupe_key}")

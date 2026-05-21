@@ -1295,6 +1295,80 @@ Still valid and should be assigned.
             self.assertEqual(pending[0].owner, "ExampleOrg")
             self.assertEqual(pending[0].repo, "project-core")
 
+    def test_queue_ignores_new_job_when_same_item_already_active(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            head_job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="head-1",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#460@abc123",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=460,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/460",
+                head_sha="abc123",
+            )
+            comment_job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="comment-1",
+                event_type="pr_comment_active",
+                dedupe_key="ExampleOrg/project-core#460@abc123:comment-abcdef",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=460,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/460",
+                head_sha="abc123",
+            )
+
+            first = bridge._queue_job(head_job, "queued head review")
+            second = bridge._queue_job(comment_job, "queued comment review")
+
+            self.assertEqual(first.status_code, 202)
+            self.assertEqual(second.status_code, 200)
+            self.assertEqual(second.body["status"], "ignored")
+            self.assertEqual(second.body["reason"], "active item job")
+            self.assertEqual(bridge.store.job_status_for_key(head_job.dedupe_key), "queued")
+            self.assertEqual(bridge.store.job_status_for_key(comment_job.dedupe_key), "")
+            pending = bridge.store.pending_jobs()
+
+        self.assertEqual([job.dedupe_key for job in pending], [head_job.dedupe_key])
+
+    def test_process_job_skips_when_job_is_no_longer_queued(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="done-1",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#460@abc123",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=460,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/460",
+                head_sha="abc123",
+            )
+            bridge.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "done", "already done")
+            bridge.store.reserve_or_retry_job(job, retry_limit=0)
+            bridge.store.update_job(job.dedupe_key, "done")
+            called = False
+            original_run_job = bridge._run_job
+
+            def fake_run_job(_job):
+                nonlocal called
+                called = True
+
+            bridge._run_job = fake_run_job
+            try:
+                bridge.process_job(job)
+            finally:
+                bridge._run_job = original_run_job
+
+        self.assertFalse(called)
+
     def test_codex_model_args_include_model_and_reasoning_effort(self):
         self.assertEqual(
             a2a_runner.codex_model_args("gpt-5.5", "mid"),
