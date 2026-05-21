@@ -998,11 +998,7 @@
       return reason ? `<span class="badge attention-badge" title="${esc(reason)}">Attention</span>` : "";
     };
     const compactStatusBadges = (item) => {
-      const parts = [badge(marker(item.item_type))];
-      if (item.item_type === "pull_request") {
-        const review = reviewBadge(item);
-        if (!review.includes("muted")) parts.push(review);
-      }
+      const parts = [];
       const attention = attentionBadge(item);
       if (attention) parts.push(attention);
       return `<span class="compact-badges">${parts.join("")}</span>`;

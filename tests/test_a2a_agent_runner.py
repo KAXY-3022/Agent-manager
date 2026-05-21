@@ -1090,6 +1090,17 @@ Still valid and should be assigned.
 
         self.assertNotIn("cardLinks", issue_card)
 
+    def test_pr_cards_do_not_render_redundant_type_or_review_badges(self):
+        ui = a2a_runner.load_ui_html()
+        marker = "const compactStatusBadges ="
+        start = ui.index(marker)
+        end = ui.index("const hasReviewRequest =", start)
+        card_badges = ui[start:end]
+
+        self.assertNotIn("badge(marker(item.item_type))", card_badges)
+        self.assertNotIn("reviewBadge(item)", card_badges)
+        self.assertIn("attentionBadge(item)", card_badges)
+
     def test_board_issue_row_filters_to_related_issues(self):
         ui = a2a_runner.load_ui_html()
 
