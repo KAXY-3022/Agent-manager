@@ -2642,6 +2642,7 @@ def extract_issue_refs(*texts: str) -> list[int]:
     return extract_ref_numbers(
         (
             r"\b(?:issue|issues|fix(?:e[sd])?|close[sd]?|resolve[sd]?|related|refs?)\s*:?\s*#(\d+)\b",
+            r"\b(?:tracker\s+prd|tracking\s+prd|prd|tracker\s+issue|tracking\s+issue)\s*:?\s*#(\d+)\b",
             r"/issues/(\d+)\b",
         ),
         *texts,

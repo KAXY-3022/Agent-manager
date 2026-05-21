@@ -488,6 +488,25 @@ class RunnerStateTests(unittest.TestCase):
         self.assertFalse(snapshot["resolved_by_merged_prs"])
         self.assertTrue(snapshot["has_open_linked_pr"])
 
+    def test_pr_snapshot_extracts_tracker_prd_issue_refs(self):
+        snapshot = a2a_runner.build_pr_snapshot(
+            "ExampleOrg/project-core",
+            {
+                "index": 441,
+                "title": "feat: activate bounded sub-session MVS",
+                "body": "Refs #438\n\nAlso mirrors tracker PRD #439 for review.\n\nTracker PRD: #440",
+                "state": "closed",
+                "hasMerged": True,
+                "author": "Dev.User",
+                "comments": [],
+                "reviews": [],
+            },
+            [],
+        )
+
+        self.assertEqual(snapshot["linked_issues"], [438, 439, 440])
+        self.assertEqual(snapshot["state"], "merged")
+
     def test_new_external_comment_detected_only_for_other_user(self):
         old_snapshot = {
             "comments": [
