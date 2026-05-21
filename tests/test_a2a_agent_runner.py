@@ -1129,18 +1129,26 @@ Still valid and should be assigned.
         self.assertNotIn("reviewBadge(item)", card_badges)
         self.assertNotIn("attentionBadge(item)", card_badges)
 
-    def test_pr_cards_render_compact_context_details(self):
+    def test_pr_cards_render_compact_identity_only(self):
         ui = a2a_runner.load_ui_html()
+        identity_marker = "const prCardIdentity ="
+        identity_start = ui.index(identity_marker)
+        identity_end = ui.index("const workCard =", identity_start)
+        identity_card = ui[identity_start:identity_end]
         marker = "const workCard ="
         start = ui.index(marker)
         end = ui.index("const issueCard =", start)
         work_card = ui[start:end]
 
-        self.assertIn("workCardDetail(item)", work_card)
-        self.assertIn("work-card-header", work_card)
-        self.assertIn("work-card-footer", work_card)
-        self.assertIn("work-card-updated", work_card)
-        self.assertIn("cardLinks(item, indexes)", work_card)
+        self.assertIn("repoShortName(item.repo)", identity_card)
+        self.assertIn("shortUser(item.author", identity_card)
+        self.assertIn("PR#${esc(item.number)}", identity_card)
+        self.assertIn("prCardIdentity(item)", work_card)
+        self.assertIn("jobStatusIcon(item)", work_card)
+        self.assertNotIn("titleHref(item)", work_card)
+        self.assertNotIn("workCardDetail(item)", work_card)
+        self.assertNotIn("cardLinks(item", work_card)
+        self.assertNotIn("work-card-footer", work_card)
 
     def test_duplicate_comment_reason_detects_existing_pr_comment(self):
         with tempfile.TemporaryDirectory() as tmpdir:

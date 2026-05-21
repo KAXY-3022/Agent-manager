@@ -31,6 +31,14 @@
       --rel-participating-soft: #f3e8ff;
       --rel-linked: #64748b;
       --rel-linked-soft: #f1f5f9;
+      --lane-wip: #64748b;
+      --lane-wip-soft: #f1f5f9;
+      --lane-under-review: #2563eb;
+      --lane-under-review-soft: #dbeafe;
+      --lane-reviewing: #d97706;
+      --lane-reviewing-soft: #fef3c7;
+      --lane-reviewed: #15803d;
+      --lane-reviewed-soft: #dcfce7;
       --shadow: 0 1px 2px rgba(32, 33, 31, 0.06), 0 12px 26px rgba(32, 33, 31, 0.04);
       --shadow-tight: 0 1px 2px rgba(32, 33, 31, 0.08);
     }
@@ -60,6 +68,14 @@
       --rel-participating-soft: #3b0764;
       --rel-linked: #94a3b8;
       --rel-linked-soft: #1e293b;
+      --lane-wip: #94a3b8;
+      --lane-wip-soft: #1e293b;
+      --lane-under-review: #60a5fa;
+      --lane-under-review-soft: #173658;
+      --lane-reviewing: #f59e0b;
+      --lane-reviewing-soft: #422006;
+      --lane-reviewed: #6ee7a8;
+      --lane-reviewed-soft: #052e16;
       --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 14px 30px rgba(0, 0, 0, 0.18);
       --shadow-tight: 0 1px 2px rgba(0, 0, 0, 0.38);
     }
@@ -342,7 +358,7 @@
       overflow: auto;
     }
     #board {
-      --board-card-height: 92px;
+      --board-card-height: 74px;
       --board-card-gap: 8px;
       --board-card-padding: 9px;
       --board-card-title-lines: 2;
@@ -536,10 +552,10 @@
       --lane-color: var(--rel-linked);
       --lane-soft: var(--rel-linked-soft);
     }
-    .kanban-column.lane-wip { --lane-color: var(--rel-linked); --lane-soft: var(--rel-linked-soft); }
-    .kanban-column.lane-under_review { --lane-color: var(--rel-created); --lane-soft: var(--rel-created-soft); }
-    .kanban-column.lane-reviewing { --lane-color: var(--rel-review); --lane-soft: var(--rel-review-soft); }
-    .kanban-column.lane-reviewed { --lane-color: var(--ok); --lane-soft: color-mix(in srgb, var(--ok) 18%, var(--panel)); }
+    .kanban-column.lane-wip { --lane-color: var(--lane-wip); --lane-soft: var(--lane-wip-soft); }
+    .kanban-column.lane-under_review { --lane-color: var(--lane-under-review); --lane-soft: var(--lane-under-review-soft); }
+    .kanban-column.lane-reviewing { --lane-color: var(--lane-reviewing); --lane-soft: var(--lane-reviewing-soft); }
+    .kanban-column.lane-reviewed { --lane-color: var(--lane-reviewed); --lane-soft: var(--lane-reviewed-soft); }
     .kanban-head {
       display: flex;
       justify-content: space-between;
@@ -690,14 +706,12 @@
       display: none;
     }
     .work-card {
-      --rel-color: var(--rel-linked);
-      --rel-soft: var(--rel-linked-soft);
-      border: 1px solid color-mix(in srgb, var(--rel-color) 24%, var(--line));
-      border-left: 5px solid var(--rel-color);
+      --rel-color: var(--line-strong);
+      --rel-soft: var(--panel-alt);
+      border: 1px solid var(--line);
+      border-left: 4px solid var(--line-strong);
       border-radius: 8px;
-      background:
-        linear-gradient(135deg, color-mix(in srgb, var(--rel-soft) 62%, var(--panel)) 0%, var(--panel) 72%),
-        var(--panel);
+      background: var(--panel);
       padding: var(--board-card-padding);
       display: flex;
       flex-direction: column;
@@ -714,18 +728,14 @@
       position: absolute;
       inset: 0 0 auto 0;
       height: 2px;
-      background: color-mix(in srgb, var(--rel-color) 72%, transparent);
-      opacity: .8;
+      background: color-mix(in srgb, var(--line-strong) 58%, transparent);
+      opacity: .62;
     }
     .work-card:hover {
-      border-color: color-mix(in srgb, var(--rel-color) 48%, var(--line));
+      border-color: var(--line-strong);
       box-shadow: var(--shadow);
       transform: translateY(-1px);
     }
-    .work-card.rel-created { --rel-color: var(--rel-created); --rel-soft: var(--rel-created-soft); }
-    .work-card.rel-assigned { --rel-color: var(--rel-assigned); --rel-soft: var(--rel-assigned-soft); }
-    .work-card.rel-review { --rel-color: var(--rel-review); --rel-soft: var(--rel-review-soft); }
-    .work-card.rel-participating { --rel-color: var(--rel-participating); --rel-soft: var(--rel-participating-soft); }
     .work-card-title {
       flex: 0 0 auto;
       font-weight: 620;
@@ -742,6 +752,51 @@
     .work-card-title a:hover {
       color: var(--accent);
       text-decoration: underline;
+    }
+    .work-card-identity {
+      display: grid;
+      gap: 5px;
+      min-width: 0;
+      padding-right: 22px;
+    }
+    .work-card-identity a {
+      color: var(--ink);
+      text-decoration: none;
+    }
+    .work-card-identity a:hover {
+      color: var(--accent);
+      text-decoration: underline;
+    }
+    .work-card-identity-main {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 660;
+      line-height: 1.25;
+    }
+    .work-card-identity-sub {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+    .work-card-pr-number {
+      flex: 0 0 auto;
+      color: var(--accent);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .work-card-creator {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
     .work-card-header {
       display: flex;
@@ -1367,20 +1422,19 @@
       }
       return parts.length ? `<div class="work-card-links">${parts.map(part => String(part).startsWith("<span") ? part : `<span class="work-card-token">${part}</span>`).join("")}</div>` : "";
     };
-    const workCardDetail = (item) => {
-      const snapshot = item.snapshot || {};
-      const bits = [`<span class="work-card-repo" title="${esc(item.repo || "")}">${esc(repoShortName(item.repo))}</span>`];
-      if (item.author) bits.push(`<span class="meta-sep">/</span><span class="work-card-author" title="${esc(item.author)}">${esc(shortUser(item.author))}</span>`);
-      const branch = shortBranch(snapshot.head || "");
-      if (branch) bits.push(`<span class="meta-sep">·</span><span class="work-card-branch" title="${esc(snapshot.head || "")}">${esc(branch)}</span>`);
-      return `<div class="work-card-detail">${bits.join("")}</div>`;
+    const prCardIdentity = (item) => {
+      const repo = repoShortName(item.repo);
+      const creator = shortUser(item.author || "-");
+      const label = `${repo} / ${creator} / PR#${item.number}`;
+      const content = `<div class="work-card-identity-main" title="${esc(item.repo || repo)}">${esc(repo)}</div>
+        <div class="work-card-identity-sub"><span class="work-card-creator" title="${esc(item.author || "")}">${esc(creator)}</span><span class="meta-sep">/</span><span class="work-card-pr-number">PR#${esc(item.number)}</span></div>`;
+      return item.url
+        ? `<a href="${esc(item.url)}" target="_blank" rel="noreferrer" aria-label="${esc(label)}" title="${esc(item.title || label)}">${content}</a>`
+        : content;
     };
-    const workCard = (item, indexes) => `<div class="work-card ${cardRelationClass(item)}${attentionClass(item)}">
+    const workCard = (item) => `<div class="work-card ${cardRelationClass(item)}${attentionClass(item)}" title="${esc(item.title || "")}">
       <div class="work-card-job">${jobStatusIcon(item)}</div>
-      <div class="work-card-header"><div class="work-card-meta">${itemHref(item)}</div>${compactStatusBadges(item)}</div>
-      <div class="work-card-title">${titleHref(item)}</div>
-      ${workCardDetail(item)}
-      <div class="work-card-footer">${cardLinks(item, indexes)}<span class="work-card-updated">${esc(item.changed_at || "")}</span></div>
+      <div class="work-card-identity">${prCardIdentity(item)}</div>
     </div>`;
     const issueCard = (item) => `<div class="issue-card ${cardRelationClass(item)}${attentionClass(item)}">
       <div class="work-card-meta">${itemHref(item)} ${issueTriageBadge(item)} ${jobStatusIcon(item)} ${attentionBadge(item)}</div>
@@ -1397,7 +1451,7 @@
       if (bodyHeights.length) {
         const gap = maxCards >= 8 ? 3 : maxCards >= 5 ? 5 : 8;
         const available = Math.min(...bodyHeights) - (gap * 2) - (gap * Math.max(0, maxCards - 1));
-        const cardHeight = Math.max(16, Math.min(112, Math.floor(available / maxCards)));
+        const cardHeight = Math.max(16, Math.min(74, Math.floor(available / maxCards)));
         board.style.setProperty("--board-card-gap", `${gap}px`);
         board.style.setProperty("--board-card-height", `${cardHeight}px`);
         board.classList.toggle("density-micro", cardHeight < 44);
