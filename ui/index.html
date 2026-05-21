@@ -1,0 +1,1363 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A2A Agent Runner</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f5f5f1;
+      --rail: #eeefe9;
+      --panel: #ffffff;
+      --panel-alt: #f9faf7;
+      --ink: #20211f;
+      --muted: #6b6f68;
+      --line: #dcded6;
+      --line-strong: #c7cabc;
+      --accent: #2563eb;
+      --accent-soft: #dbeafe;
+      --ok: #15803d;
+      --warn: #a16207;
+      --bad: #b91c1c;
+      --rel-created: #0ea5e9;
+      --rel-created-soft: #e0f2fe;
+      --rel-assigned: #22c55e;
+      --rel-assigned-soft: #dcfce7;
+      --rel-review: #f97316;
+      --rel-review-soft: #ffedd5;
+      --rel-participating: #a855f7;
+      --rel-participating-soft: #f3e8ff;
+      --rel-linked: #64748b;
+      --rel-linked-soft: #f1f5f9;
+      --shadow: 0 1px 2px rgba(32, 33, 31, 0.06);
+    }
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #111315;
+      --rail: #17191c;
+      --panel: #1d2024;
+      --panel-alt: #24282d;
+      --ink: #eceff3;
+      --muted: #a4abb5;
+      --line: #30353b;
+      --line-strong: #444b55;
+      --accent: #60a5fa;
+      --accent-soft: #173658;
+      --ok: #6ee7a8;
+      --warn: #f8d76c;
+      --bad: #fca5a5;
+      --rel-created: #38bdf8;
+      --rel-created-soft: #082f49;
+      --rel-assigned: #4ade80;
+      --rel-assigned-soft: #052e16;
+      --rel-review: #fb923c;
+      --rel-review-soft: #431407;
+      --rel-participating: #c084fc;
+      --rel-participating-soft: #3b0764;
+      --rel-linked: #94a3b8;
+      --rel-linked-soft: #1e293b;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    }
+    * { box-sizing: border-box; }
+    html {
+      min-height: 100%;
+    }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+      min-height: 100vh;
+    }
+    button, input, select { font: inherit; }
+    .shell {
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr);
+      min-height: 100vh;
+    }
+    .shell.sidebar-collapsed {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .shell.sidebar-collapsed .rail {
+      display: none;
+    }
+    .rail {
+      border-right: 1px solid var(--line);
+      background: var(--rail);
+      padding: 18px 14px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+    }
+    .rail-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .mark {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      border-radius: 6px;
+      font-weight: 700;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 650;
+    }
+    .brand p {
+      margin: 1px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .nav {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+    .nav button {
+      width: 100%;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--ink);
+      padding: 8px 9px;
+      text-align: left;
+      cursor: pointer;
+    }
+    .nav button.active {
+      background: var(--panel);
+      border-color: var(--line);
+      box-shadow: var(--shadow);
+    }
+    .rail-block {
+      border-top: 1px solid var(--line);
+      padding-top: 14px;
+      margin-top: 14px;
+      color: var(--muted);
+      display: grid;
+      gap: 8px;
+      overflow-wrap: anywhere;
+    }
+    .rail-block code {
+      color: var(--ink);
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 2px 4px;
+    }
+    main {
+      padding: 18px 22px 28px;
+      min-width: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+      flex: 0 0 auto;
+    }
+    .topbar-title {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+    .topbar h2 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 650;
+    }
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .topbar-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .sidebar-reveal.hidden {
+      display: none;
+    }
+    .btn {
+      border: 1px solid var(--line-strong);
+      background: var(--panel);
+      color: var(--ink);
+      border-radius: 6px;
+      padding: 7px 10px;
+      cursor: pointer;
+      box-shadow: var(--shadow);
+    }
+    .btn.primary {
+      border-color: #1d4ed8;
+      background: var(--accent);
+      color: white;
+    }
+    .btn.danger {
+      border-color: #f0b4b4;
+      color: var(--bad);
+    }
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+    }
+    .sidebar-icon {
+      width: 17px;
+      height: 15px;
+      border: 1.5px solid currentColor;
+      border-radius: 4px;
+      position: relative;
+      display: block;
+      opacity: .88;
+    }
+    .sidebar-icon::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: 5px;
+      width: 1.5px;
+      background: currentColor;
+      opacity: .72;
+    }
+    .sidebar-icon::after {
+      content: "";
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 5px;
+      height: 1.5px;
+      background: currentColor;
+      box-shadow: 0 3.5px 0 currentColor, 0 7px 0 currentColor;
+      opacity: .55;
+    }
+    .theme-toggle {
+      min-width: 94px;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      box-shadow: var(--shadow);
+      min-height: 78px;
+    }
+    .metric .label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .metric .value {
+      margin-top: 6px;
+      font-size: 22px;
+      font-weight: 680;
+    }
+    .metric .sub {
+      color: var(--muted);
+      margin-top: 3px;
+      overflow-wrap: anywhere;
+    }
+    .section {
+      margin-top: 14px;
+    }
+    .view {
+      min-width: 0;
+    }
+    #board {
+      --board-card-height: 92px;
+      --board-card-gap: 8px;
+      --board-card-padding: 9px;
+      --board-card-title-lines: 2;
+      --board-card-font-size: 13px;
+      --issue-card-height: 34px;
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #board.hidden {
+      display: none;
+    }
+    #board .section-head,
+    #board .filter-row {
+      flex: 0 0 auto;
+    }
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 8px;
+    }
+    .section-head h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 650;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    th, td {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+      text-align: left;
+    }
+    th {
+      color: var(--muted);
+      background: var(--panel-alt);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    tr:last-child td { border-bottom: 0; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    .muted { color: var(--muted); }
+    .title-cell {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    a:hover { text-decoration: underline; }
+    .target-link {
+      font-weight: 620;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 2px 7px;
+      border: 1px solid var(--line-strong);
+      background: var(--panel-alt);
+      font-size: 12px;
+      max-width: 100%;
+    }
+    .badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: color-mix(in srgb, var(--ok) 12%, var(--panel)); }
+    .badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 12%, var(--panel)); }
+    .badge.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); background: color-mix(in srgb, var(--bad) 12%, var(--panel)); }
+    .badge.rel-created { color: var(--rel-created); border-color: var(--rel-created); background: var(--rel-created-soft); }
+    .badge.rel-assigned { color: var(--rel-assigned); border-color: var(--rel-assigned); background: var(--rel-assigned-soft); }
+    .badge.rel-review { color: var(--rel-review); border-color: var(--rel-review); background: var(--rel-review-soft); }
+    .badge.rel-participating { color: var(--rel-participating); border-color: var(--rel-participating); background: var(--rel-participating-soft); }
+    .compact-badges {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+    }
+    .job-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border-radius: 999px;
+      padding: 2px 7px;
+      border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+      background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+      color: var(--accent);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+    .job-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: currentColor;
+    }
+    .job-indicator.running .job-dot {
+      animation: jobPulse 1.1s ease-in-out infinite;
+    }
+    .job-indicator.queued {
+      color: var(--warn);
+      border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+      background: color-mix(in srgb, var(--warn) 10%, var(--panel));
+    }
+    .job-indicator.failed {
+      color: var(--bad);
+      border-color: color-mix(in srgb, var(--bad) 45%, var(--line));
+      background: color-mix(in srgb, var(--bad) 10%, var(--panel));
+    }
+    @keyframes jobPulse {
+      0% { transform: scale(.82); opacity: .65; }
+      50% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(.82); opacity: .65; }
+    }
+    .tabs {
+      display: inline-flex;
+      border: 1px solid var(--line-strong);
+      border-radius: 6px;
+      overflow: hidden;
+      background: var(--panel);
+    }
+    .tabs button {
+      border: 0;
+      border-right: 1px solid var(--line-strong);
+      padding: 6px 10px;
+      background: transparent;
+      cursor: pointer;
+    }
+    .tabs button:last-child { border-right: 0; }
+    .tabs button.active { background: var(--accent-soft); color: var(--accent); }
+    .filter-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .filter-group {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .filter-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .relation-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .kanban {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      align-items: stretch;
+      overflow-x: hidden;
+      overflow-y: hidden;
+      flex: 1 1 auto;
+      min-height: 220px;
+    }
+    .kanban-column {
+      min-width: 0;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      min-height: 0;
+      max-height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    .kanban-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-alt);
+      font-size: 12px;
+      font-weight: 650;
+      flex: 0 0 auto;
+    }
+    .kanban-body {
+      display: grid;
+      grid-auto-rows: var(--board-card-height);
+      gap: var(--board-card-gap);
+      padding: var(--board-card-gap);
+      min-height: 0;
+      align-content: start;
+      overflow: hidden;
+      flex: 1 1 auto;
+    }
+    .issue-row {
+      margin-top: 12px;
+      position: sticky;
+      bottom: 0;
+      z-index: 8;
+      flex: 0 0 auto;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .issue-row-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-alt);
+      font-size: 12px;
+      font-weight: 650;
+    }
+    .issue-row-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+    .issue-scan-btn {
+      padding: 4px 8px;
+      font-size: 12px;
+      box-shadow: none;
+      white-space: nowrap;
+    }
+    .issue-row-body {
+      display: grid;
+      grid-template-columns: repeat(var(--issue-columns, 4), minmax(0, 1fr));
+      grid-auto-rows: var(--issue-card-height);
+      gap: 6px;
+      padding: 6px;
+      max-height: 142px;
+      overflow: hidden;
+      align-items: start;
+    }
+    .issue-card {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-left: 6px solid var(--rel-linked);
+      border-radius: 7px;
+      background: color-mix(in srgb, var(--rel-linked-soft) 35%, var(--panel));
+      padding: 7px 8px;
+      display: grid;
+      gap: 5px;
+      height: var(--issue-card-height);
+      overflow: hidden;
+    }
+    .issue-card.rel-created { border-left-color: var(--rel-created); background: color-mix(in srgb, var(--rel-created-soft) 55%, var(--panel)); }
+    .issue-card.rel-assigned { border-left-color: var(--rel-assigned); background: color-mix(in srgb, var(--rel-assigned-soft) 55%, var(--panel)); }
+    .issue-card.rel-review { border-left-color: var(--rel-review); background: color-mix(in srgb, var(--rel-review-soft) 55%, var(--panel)); }
+    .issue-card.rel-participating { border-left-color: var(--rel-participating); background: color-mix(in srgb, var(--rel-participating-soft) 55%, var(--panel)); }
+    .work-card.attention-needed,
+    .issue-card.attention-needed,
+    tr.attention-needed {
+      animation: attentionPulse 1.45s ease-in-out infinite;
+      border-color: color-mix(in srgb, var(--warn) 70%, var(--line));
+    }
+    .work-card.attention-needed,
+    .issue-card.attention-needed {
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn) 35%, transparent);
+    }
+    .attention-badge {
+      color: var(--warn);
+      border-color: color-mix(in srgb, var(--warn) 55%, var(--line));
+      background: color-mix(in srgb, var(--warn) 14%, var(--panel));
+    }
+    @keyframes attentionPulse {
+      0%, 100% { box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn) 28%, transparent); }
+      50% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 48%, transparent); }
+    }
+    .issue-card-title {
+      font-weight: 600;
+      line-height: 1.25;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .issue-card .badge,
+    .issue-card .job-indicator {
+      font-size: 11px;
+      padding: 1px 6px;
+    }
+    #board.density-compact {
+      --board-card-padding: 6px;
+      --board-card-gap: 5px;
+      --board-card-title-lines: 1;
+      --board-card-font-size: 12px;
+    }
+    #board.density-micro {
+      --board-card-padding: 4px;
+      --board-card-gap: 3px;
+      --board-card-title-lines: 1;
+      --board-card-font-size: 11px;
+    }
+    #board.density-micro .work-card .work-card-meta:last-of-type,
+    #board.density-micro .work-card-links,
+    #board.density-micro .job-text {
+      display: none;
+    }
+    .work-card {
+      border: 1px solid var(--line);
+      border-left: 6px solid var(--rel-linked);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--rel-linked-soft) 24%, var(--panel));
+      padding: var(--board-card-padding);
+      display: grid;
+      gap: calc(var(--board-card-gap) - 1px);
+      min-height: 0;
+      overflow: hidden;
+      font-size: var(--board-card-font-size);
+      position: relative;
+    }
+    .work-card.rel-created { border-left-color: var(--rel-created); background: color-mix(in srgb, var(--rel-created-soft) 34%, var(--panel)); }
+    .work-card.rel-assigned { border-left-color: var(--rel-assigned); background: color-mix(in srgb, var(--rel-assigned-soft) 34%, var(--panel)); }
+    .work-card.rel-review { border-left-color: var(--rel-review); background: color-mix(in srgb, var(--rel-review-soft) 34%, var(--panel)); }
+    .work-card.rel-participating { border-left-color: var(--rel-participating); background: color-mix(in srgb, var(--rel-participating-soft) 34%, var(--panel)); }
+    .work-card-title {
+      font-weight: 620;
+      line-height: 1.3;
+      display: -webkit-box;
+      -webkit-line-clamp: var(--board-card-title-lines);
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .work-card-meta {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 4px;
+      align-items: center;
+      overflow: hidden;
+      min-width: 0;
+    }
+    .work-card-meta .target-link {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .work-card-meta .badge {
+      flex: 0 0 auto;
+      padding: 1px 6px;
+    }
+    .work-card-links {
+      color: var(--muted);
+      font-size: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+    .work-card-job {
+      position: absolute;
+      top: 6px;
+      right: 6px;
+      z-index: 2;
+    }
+    .work-card-job .job-indicator {
+      padding: 3px;
+      border-radius: 999px;
+      width: 18px;
+      height: 18px;
+      justify-content: center;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+    .work-card-job .job-text {
+      display: none;
+    }
+    .work-card-job .job-dot {
+      width: 8px;
+      height: 8px;
+    }
+    .hidden { display: none; }
+    .logline {
+      padding: 9px 10px;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      grid-template-columns: 150px 100px minmax(0, 1fr);
+      gap: 10px;
+    }
+    .logline:last-child { border-bottom: 0; }
+    .empty {
+      padding: 18px;
+      color: var(--muted);
+    }
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      background: var(--ink);
+      color: var(--bg);
+      border-radius: 7px;
+      padding: 10px 12px;
+      max-width: min(520px, calc(100vw - 36px));
+      box-shadow: 0 8px 24px rgba(0,0,0,.18);
+      display: none;
+      overflow-wrap: anywhere;
+    }
+    @media (max-width: 900px) {
+      .shell { grid-template-columns: 1fr; }
+      .rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      main { min-height: auto; }
+      #board { overflow: visible; }
+      .grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+      .logline { grid-template-columns: 1fr; }
+      .kanban { grid-template-columns: repeat(4, minmax(0, 1fr)); overflow-x: hidden; overflow-y: hidden; min-height: 220px; }
+      .kanban-column { min-width: 0; max-height: none; }
+      .kanban-body { overflow: hidden; }
+      .issue-row { position: static; }
+      .issue-row-body { max-height: 160px; overflow: hidden; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="rail" id="sidebar">
+      <div class="rail-top">
+        <div class="brand">
+          <div class="mark">M</div>
+          <div>
+            <h1>A2A Runner</h1>
+            <p>Local control plane</p>
+          </div>
+        </div>
+        <button class="btn icon-btn" id="sidebar-hide" aria-label="Hide sidebar" aria-expanded="true" aria-controls="sidebar" title="Hide sidebar"><span class="sidebar-icon" aria-hidden="true"></span></button>
+      </div>
+      <div class="nav">
+        <button data-view="board" class="active">Board</button>
+        <button data-view="overview">Overview</button>
+        <button data-view="items">Issues & PRs</button>
+        <button data-view="changes">Changes</button>
+        <button data-view="jobs">Jobs</button>
+        <button data-view="deliveries">Deliveries</button>
+        <button data-view="tasks">Task Packages</button>
+      </div>
+      <div class="rail-block">
+        <div>Runtime <code id="runtime">-</code></div>
+        <div>Monitor <code id="monitor">-</code></div>
+        <div>Webhook <code id="webhook-url">-</code></div>
+        <div>Ngrok <code id="ngrok-url">-</code></div>
+      </div>
+    </aside>
+    <main>
+      <div class="topbar">
+        <div class="topbar-title">
+          <button class="btn icon-btn sidebar-reveal hidden" id="sidebar-reveal" aria-label="Show sidebar" aria-expanded="false" aria-controls="sidebar" title="Show sidebar"><span class="sidebar-icon" aria-hidden="true"></span></button>
+          <div>
+            <h2 id="view-title">Board</h2>
+            <div class="muted" id="last-refresh">Not loaded</div>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <div class="toolbar" id="toolbar">
+            <button class="btn theme-toggle" id="theme-toggle">Dark</button>
+            <button class="btn" id="refresh">Refresh</button>
+            <button class="btn" id="monitor-once">Monitor Once</button>
+            <button class="btn danger" id="sync-reviews">Sync Review Requests</button>
+          </div>
+        </div>
+      </div>
+
+      <section id="board" class="view">
+        <div class="section-head"><h3>Work Board</h3></div>
+        <div class="filter-row">
+          <div class="filter-group">
+            <span class="filter-label">Scope</span>
+            <div class="tabs">
+              <button data-board-relation-filter="related" class="active">Related</button>
+              <button data-board-relation-filter="created">Created</button>
+              <button data-board-relation-filter="assigned">Assigned</button>
+              <button data-board-relation-filter="review_requested">Review</button>
+              <button data-board-relation-filter="participating">Participating</button>
+              <button data-board-relation-filter="">All</button>
+            </div>
+          </div>
+        </div>
+        <div class="kanban" id="kanban-board"></div>
+        <div class="issue-row">
+          <div class="issue-row-head">
+            <div class="issue-row-title"><span>Issues</span><span class="badge" id="kanban-issues-count">0</span></div>
+            <button class="btn issue-scan-btn" id="scan-stale-issues">Scan Stale</button>
+          </div>
+          <div class="issue-row-body" id="kanban-issues"></div>
+        </div>
+      </section>
+
+      <section id="overview" class="view hidden">
+        <div class="grid">
+          <div class="metric"><div class="label">Tracked PRs</div><div class="value" id="metric-prs">0</div><div class="sub">Open pull requests</div></div>
+          <div class="metric"><div class="label">Tracked Issues</div><div class="value" id="metric-issues">0</div><div class="sub">Open issues</div></div>
+          <div class="metric"><div class="label">Jobs Done</div><div class="value" id="metric-jobs">0</div><div class="sub" id="metric-jobs-sub">No jobs</div></div>
+          <div class="metric"><div class="label">Last Change</div><div class="value mono" id="metric-last">-</div><div class="sub">Local tracking event</div></div>
+        </div>
+        <div class="section">
+          <div class="section-head"><h3>Active Issues & PRs</h3></div>
+          <div class="panel" id="overview-items"></div>
+        </div>
+        <div class="section">
+          <div class="section-head"><h3>Recent Item Changes</h3></div>
+          <div class="panel" id="overview-changes"></div>
+        </div>
+      </section>
+
+      <section id="changes" class="view hidden">
+        <div class="panel" id="changes-table"></div>
+      </section>
+
+      <section id="items" class="view hidden">
+        <div class="section-head"><h3>Tracked Items</h3></div>
+        <div class="filter-row">
+          <div class="filter-group">
+            <span class="filter-label">Type</span>
+            <div class="tabs">
+              <button data-item-filter="" class="active">All</button>
+              <button data-item-filter="pull_request">PRs</button>
+              <button data-item-filter="issue">Issues</button>
+            </div>
+          </div>
+          <div class="filter-group">
+            <span class="filter-label">State</span>
+            <div class="tabs">
+              <button data-state-filter="open" class="active">Open</button>
+              <button data-state-filter="inactive">Merged/Closed</button>
+              <button data-state-filter="">All</button>
+            </div>
+          </div>
+          <div class="filter-group">
+            <span class="filter-label">Relation</span>
+            <div class="tabs">
+              <button data-relation-filter="" class="active">All</button>
+              <button data-relation-filter="related">Related</button>
+              <button data-relation-filter="created">Created</button>
+              <button data-relation-filter="assigned">Assigned</button>
+              <button data-relation-filter="review_requested">Review</button>
+              <button data-relation-filter="participating">Participating</button>
+            </div>
+          </div>
+        </div>
+        <div class="panel" id="items-table"></div>
+      </section>
+
+      <section id="jobs" class="view hidden"><div class="panel" id="jobs-table"></div></section>
+      <section id="deliveries" class="view hidden"><div class="panel" id="deliveries-table"></div></section>
+      <section id="tasks" class="view hidden"><div class="panel" id="tasks-table"></div></section>
+    </main>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script>
+    const state = { view: "board", itemFilter: "", stateFilter: "open", relationFilter: "", boardRelationFilter: "related", userNames: [] };
+    const boardColumns = [
+      {id:"wip", title:"WIP"},
+      {id:"under_review", title:"Under Review"},
+      {id:"reviewing", title:"Reviewing"},
+      {id:"reviewed", title:"Reviewed"}
+    ];
+    const $ = (id) => document.getElementById(id);
+    const preferredTheme = () => localStorage.getItem("a2a-runner-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    const preferredSidebarCollapsed = () => localStorage.getItem("a2a-runner-sidebar-collapsed") === "1";
+    function applyTheme(theme) {
+      document.documentElement.dataset.theme = theme;
+      localStorage.setItem("a2a-runner-theme", theme);
+      const btn = $("theme-toggle");
+      if (btn) btn.textContent = theme === "dark" ? "Light" : "Dark";
+    }
+    function applySidebarCollapsed(collapsed) {
+      const shell = document.querySelector(".shell");
+      const reveal = $("sidebar-reveal");
+      const hide = $("sidebar-hide");
+      if (shell) shell.classList.toggle("sidebar-collapsed", collapsed);
+      if (reveal) {
+        reveal.classList.toggle("hidden", !collapsed);
+        reveal.setAttribute("aria-expanded", String(!collapsed));
+      }
+      if (hide) {
+        hide.setAttribute("aria-expanded", String(!collapsed));
+      }
+      localStorage.setItem("a2a-runner-sidebar-collapsed", collapsed ? "1" : "0");
+      requestAnimationFrame(fitKanbanToWindow);
+    }
+    applyTheme(preferredTheme());
+    applySidebarCollapsed(preferredSidebarCollapsed());
+    const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const badgeClass = (value) => {
+      const text = String(value ?? "").toLowerCase();
+      if (["done", "open", "ok", "succeeded", "posted", "merged", "reviewed", "fixed"].includes(text)) return "ok";
+      if (["failed", "closed", "unauthorized", "hard handoff", "auto failed", "easy blocked", "stale failed"].includes(text)) return "bad";
+      if (["queued", "running", "ignored", "duplicate", "local", "stale", "draft", "plan review", "easy direct", "assign", "assigned", "assess", "no action"].includes(text)) return "warn";
+      return "";
+    };
+    const badge = (value) => `<span class="badge ${badgeClass(value)}">${esc(value || "-")}</span>`;
+    const marker = (type) => type === "pull_request" ? "PR" : "issue";
+    const itemHref = (item) => item.url ? `<a class="target-link" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(marker(item.item_type))}#${esc(item.number)}</a>` : `${esc(marker(item.item_type))}#${esc(item.number)}`;
+    const titleHref = (item) => item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.title || "(untitled)")}</a>` : esc(item.title || "(untitled)");
+    const relationBadges = (item) => {
+      const labels = item.relationship_labels || [];
+      if (!labels.length) return '<span class="muted">-</span>';
+      return `<div class="relation-list">${labels.map(label => `<span class="badge rel-${esc(label)}">${esc(label)}</span>`).join("")}</div>`;
+    };
+    const reviewBadge = (item) => {
+      if (item.item_type !== "pull_request") return '<span class="muted">-</span>';
+      const status = item.review_status || {};
+      if (!status.label) return '<span class="muted">-</span>';
+      const bits = [];
+      if (status.latest_at) bits.push(`reviewed ${status.latest_at}`);
+      if (status.posted_at) bits.push(`posted ${status.posted_at}`);
+      if (status.stale && status.reviewed_head_sha && status.current_head_sha) bits.push(`head ${status.reviewed_head_sha.slice(0, 8)} -> ${status.current_head_sha.slice(0, 8)}`);
+      const title = bits.length ? ` title="${esc(bits.join(" | "))}"` : "";
+      return `<span${title}>${badge(status.label)}</span>`;
+    };
+    const issueTriageBadge = (item) => {
+      if (item.item_type !== "issue") return "";
+      const status = item.review_status || {};
+      if (!status.label) return "";
+      const bits = [];
+      if (status.automation_decision) bits.push(`decision ${status.automation_decision}`);
+      if (status.stale_issue_decision) bits.push(`stale ${status.stale_issue_decision}`);
+      if (status.stale_issue_action_status) bits.push(`action ${status.stale_issue_action_status}`);
+      if (status.latest_at) bits.push(`triaged ${status.latest_at}`);
+      const scores = status.triage_scores || {};
+      const scoreText = ["difficulty", "workload", "importance", "complexity"]
+        .filter(name => scores[name] !== undefined)
+        .map(name => `${name}:${scores[name]}`)
+        .join(" ");
+      if (scoreText) bits.push(scoreText);
+      const title = bits.length ? ` title="${esc(bits.join(" | "))}"` : "";
+      return `<span${title}>${badge(status.label)}</span>`;
+    };
+    const jobStatusIcon = (item) => {
+      const job = item.job_status || {};
+      if (!job.active && !job.recent) return "";
+      const status = String(job.status || "").toLowerCase();
+      const label = status === "running" ? "AI running" : status === "queued" ? "AI queued" : status === "failed" ? "AI failed" : `AI ${status || "job"}`;
+      const title = `${job.kind_label || "AI job"} ${status || "active"}${job.updated_at ? ` · ${job.updated_at}` : ""}`;
+      return `<span class="job-indicator ${esc(status || "queued")}" title="${esc(title)}" aria-label="${esc(title)}"><span class="job-dot" aria-hidden="true"></span><span class="job-text">${esc(label)}</span></span>`;
+    };
+    const jobStatusCell = (item) => jobStatusIcon(item) || '<span class="muted">-</span>';
+    const userMatchesName = (name) => {
+      const value = String(name || "").toLowerCase();
+      return Boolean(value && state.userNames.some(candidate => String(candidate || "").toLowerCase() === value));
+    };
+    const latestExternalInteraction = (item) => {
+      const snapshot = item.snapshot || {};
+      const isFeedbackReview = (value) => {
+        const reviewState = String(value.state || "").toUpperCase();
+        return Boolean(reviewState && reviewState !== "REQUEST_REVIEW");
+      };
+      const values = [
+        ...((snapshot.comments || []).map(value => ({...value, actor: value.author}))),
+        ...((snapshot.review_comments || []).map(value => ({...value, actor: value.author}))),
+        ...((snapshot.reviews || []).filter(isFeedbackReview).map(value => ({...value, actor: value.reviewer})))
+      ].filter(value => value && value.actor);
+      if (!values.length) return null;
+      values.sort((a, b) => String(a.updated || a.created || a.id || "").localeCompare(String(b.updated || b.created || b.id || "")));
+      const latest = values[values.length - 1];
+      return userMatchesName(latest.actor) ? null : latest;
+    };
+    const attentionReason = (item) => {
+      const rel = item.relationships || {};
+      const review = item.review_status || {};
+      const job = item.job_status || {};
+      const jobStatus = String(job.status || "").toLowerCase();
+      if (jobStatus === "failed") return "AI job failed";
+      if (job.active) return "";
+      if (item.item_type === "issue" && review.human_attention) return review.attention_reason || "Issue needs human attention";
+      if (review.stale) return "Review is stale";
+      if (review.current_head_failed) return "Current-head review failed";
+      if (item.item_type === "pull_request" && rel.created_by_me && latestExternalInteraction(item)) return "Your PR has external feedback";
+      if (item.item_type === "issue" && item.snapshot && item.snapshot.has_open_linked_pr) return "";
+      if (item.item_type === "issue" && item.snapshot && item.snapshot.resolved_by_merged_prs) return "";
+      if (item.item_type === "issue" && rel.assigned_to_me && !job.active) return "Issue assigned to you";
+      return "";
+    };
+    const attentionNeeded = (item) => Boolean(attentionReason(item));
+    const attentionClass = (item) => attentionNeeded(item) ? " attention-needed" : "";
+    const attentionBadge = (item) => {
+      const reason = attentionReason(item);
+      return reason ? `<span class="badge attention-badge" title="${esc(reason)}">Attention</span>` : "";
+    };
+    const compactStatusBadges = (item) => {
+      const parts = [badge(marker(item.item_type))];
+      if (item.item_type === "pull_request") {
+        const review = reviewBadge(item);
+        if (!review.includes("muted")) parts.push(review);
+      }
+      const attention = attentionBadge(item);
+      if (attention) parts.push(attention);
+      return `<span class="compact-badges">${parts.join("")}</span>`;
+    };
+    const hasReviewRequest = (item) => {
+      const reviews = (item.snapshot && item.snapshot.reviews) || [];
+      return item.has_review_request || reviews.some(r => String(r.state || "").toUpperCase() === "REQUEST_REVIEW");
+    };
+    const itemKey = (item) => `${item.repo}:${item.item_type}:${item.number}`;
+    const relationshipMatches = (item, relation) => {
+      if (!relation || relation === "all") return true;
+      const rel = item.relationships || {};
+      const relationMap = {
+        related: "related_to_me",
+        created: "created_by_me",
+        assigned: "assigned_to_me",
+        review_requested: "review_requested_from_me",
+        participating: "participating"
+      };
+      const key = relationMap[relation];
+      return Boolean(key && rel[key]);
+    };
+    const isWipTitle = (item) => /(^|\s)(wip|draft)\b/i.test(item.title || "");
+    const boardColumnFor = (item) => {
+      const rel = item.relationships || {};
+      const review = item.review_status || {};
+      if (item.item_type === "issue") return "";
+      if (review.reviewed && !review.stale) return "reviewed";
+      if (rel.created_by_me || rel.assigned_to_me) {
+        if (!isWipTitle(item) && hasReviewRequest(item)) return "under_review";
+        return "wip";
+      }
+      if (rel.review_requested_from_me) return "reviewing";
+      if (rel.participating) return "reviewing";
+      return "wip";
+    };
+    const cardRelationClass = (item) => {
+      const rel = item.relationships || {};
+      if (rel.created_by_me) return "rel-created";
+      if (rel.assigned_to_me) return "rel-assigned";
+      if (rel.review_requested_from_me) return "rel-review";
+      if (rel.participating) return "rel-participating";
+      return "rel-linked";
+    };
+    const indexItems = (items) => {
+      const byKey = new Map();
+      const prsByIssue = new Map();
+      for (const item of items) {
+        byKey.set(`${item.repo}:${item.item_type}:${item.number}`, item);
+      }
+      for (const item of items) {
+        if (item.item_type !== "pull_request") continue;
+        for (const issueNumber of ((item.snapshot && item.snapshot.linked_issues) || [])) {
+          const key = `${item.repo}:${issueNumber}`;
+          if (!prsByIssue.has(key)) prsByIssue.set(key, []);
+          prsByIssue.get(key).push(item);
+        }
+      }
+      return {byKey, prsByIssue};
+    };
+    const linkedItemsForBoard = (item, indexes) => {
+      if (item.item_type === "issue") {
+        const directPrs = ((item.snapshot && item.snapshot.linked_prs) || [])
+          .map(number => indexes.byKey.get(`${item.repo}:pull_request:${number}`))
+          .filter(Boolean);
+        return [...directPrs, ...(indexes.prsByIssue.get(`${item.repo}:${item.number}`) || [])];
+      }
+      return ((item.snapshot && item.snapshot.linked_issues) || [])
+        .map(number => indexes.byKey.get(`${item.repo}:issue:${number}`))
+        .filter(Boolean);
+    };
+    const boardVisibleItems = (items, indexes) => {
+      const active = items.filter(i => i.state === "open");
+      if (!state.boardRelationFilter) return active;
+      const included = new Set();
+      for (const item of active) {
+        if (!relationshipMatches(item, state.boardRelationFilter)) continue;
+        included.add(itemKey(item));
+        if (state.boardRelationFilter === "related") {
+          for (const linked of linkedItemsForBoard(item, indexes)) included.add(itemKey(linked));
+        }
+      }
+      return active.filter(item => included.has(itemKey(item)));
+    };
+    const issueHasTrackedPr = (item, indexes) => (
+      linkedItemsForBoard(item, indexes).some(linked => linked.item_type === "pull_request") ||
+      ((item.snapshot && item.snapshot.tracked_linked_prs) || []).some(pr => String(pr.state || "").toLowerCase() === "open")
+    );
+    const issueResolvedByMergedPrs = (item) => Boolean(item.snapshot && item.snapshot.resolved_by_merged_prs);
+    const boardIssueItems = (items, indexes) => items.filter(item => (
+      item.item_type === "issue" &&
+      relationshipMatches(item, "related") &&
+      !issueHasTrackedPr(item, indexes) &&
+      !issueResolvedByMergedPrs(item)
+    ));
+    const itemTinyLink = (item) => item ? itemHref(item) : "";
+    const cardLinks = (item, indexes) => {
+      const parts = [];
+      if (item.item_type === "issue") {
+        const linked = [...((item.snapshot && item.snapshot.linked_prs) || []).map(number => indexes.byKey.get(`${item.repo}:pull_request:${number}`)).filter(Boolean), ...(indexes.prsByIssue.get(`${item.repo}:${item.number}`) || [])];
+        const unique = [...new Map(linked.map(pr => [pr.number, pr])).values()];
+        if (unique.length) parts.push(`PR ${unique.map(itemTinyLink).join(" ")}`);
+      } else {
+        const linkedIssues = (item.snapshot && item.snapshot.linked_issues) || [];
+        if (linkedIssues.length) {
+          const links = linkedIssues.map(number => indexes.byKey.get(`${item.repo}:issue:${number}`) || {item_type:"issue", number, url:`${item.url.replace(/\/pulls\/\d+$/, `/issues/${number}`)}`});
+          parts.push(`Issue ${links.map(itemTinyLink).join(" ")}`);
+        }
+      }
+      return parts.length ? `<div class="work-card-links">${parts.join("")}</div>` : "";
+    };
+    const workCard = (item, indexes) => `<div class="work-card ${cardRelationClass(item)}${attentionClass(item)}">
+      <div class="work-card-job">${jobStatusIcon(item)}</div>
+      <div class="work-card-meta">${itemHref(item)} ${compactStatusBadges(item)}</div>
+      <div class="work-card-title">${titleHref(item)}</div>
+      ${cardLinks(item, indexes)}
+    </div>`;
+    const issueCard = (item) => `<div class="issue-card ${cardRelationClass(item)}${attentionClass(item)}">
+      <div class="work-card-meta">${itemHref(item)} ${issueTriageBadge(item)} ${jobStatusIcon(item)} ${attentionBadge(item)}</div>
+      <div class="issue-card-title">${titleHref(item)}</div>
+    </div>`;
+    function fitKanbanToWindow() {
+      const board = $("board");
+      const kanban = $("kanban-board");
+      if (!board || !kanban || board.classList.contains("hidden")) return;
+      const bodies = [...kanban.querySelectorAll(".kanban-body")];
+      const cardCounts = bodies.map(body => [...body.children].filter(child => child.classList.contains("work-card")).length);
+      const maxCards = Math.max(1, ...cardCounts);
+      const bodyHeights = bodies.map(body => body.clientHeight).filter(Boolean);
+      if (bodyHeights.length) {
+        const gap = maxCards >= 8 ? 3 : maxCards >= 5 ? 5 : 8;
+        const available = Math.min(...bodyHeights) - (gap * 2) - (gap * Math.max(0, maxCards - 1));
+        const cardHeight = Math.max(16, Math.min(112, Math.floor(available / maxCards)));
+        board.style.setProperty("--board-card-gap", `${gap}px`);
+        board.style.setProperty("--board-card-height", `${cardHeight}px`);
+        board.classList.toggle("density-micro", cardHeight < 44);
+        board.classList.toggle("density-compact", cardHeight >= 44 && cardHeight < 72);
+      }
+      const issueBody = $("kanban-issues");
+      if (issueBody) {
+        const issueCount = [...issueBody.children].filter(child => child.classList.contains("issue-card")).length;
+        if (issueCount > 0) {
+          const width = Math.max(1, issueBody.clientWidth);
+          const minWidth = issueCount > 8 ? 160 : 190;
+          const columns = Math.max(1, Math.min(issueCount, Math.floor(width / minWidth) || 1));
+          const rows = Math.ceil(issueCount / columns);
+          const maxBodyHeight = 142;
+          const gap = 6;
+          const cardHeight = Math.max(30, Math.min(52, Math.floor((maxBodyHeight - 12 - (gap * Math.max(0, rows - 1))) / rows)));
+          board.style.setProperty("--issue-columns", String(columns));
+          board.style.setProperty("--issue-card-height", `${cardHeight}px`);
+        }
+      }
+    }
+    const toast = (msg) => { const t = $("toast"); t.textContent = msg; t.style.display = "block"; setTimeout(() => t.style.display = "none", 4200); };
+    async function api(path, options = {}) {
+      const res = await fetch(path, options);
+      const text = await res.text();
+      let data = {};
+      try { data = text ? JSON.parse(text) : {}; } catch { data = { error: text }; }
+      if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
+      return data;
+    }
+    function table(headers, rows, emptyText = "No data") {
+      if (!rows.length) return `<div class="empty">${esc(emptyText)}</div>`;
+      return `<table><thead><tr>${headers.map(h => `<th style="width:${h.w || "auto"}">${esc(h.t)}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody></table>`;
+    }
+    function renderLog(events) {
+      if (!events.length) return `<div class="empty">No tracked changes</div>`;
+      return events.map(e => `<div class="logline">
+        <div class="mono muted">${esc(e.created_at)}</div>
+        <div>${badge(e.event_kind)}</div>
+        <div><strong>${esc(e.repo)} ${itemHref(e)}</strong>${e.title ? ` · ${titleHref(e)}` : ""}<br><span class="muted">${esc(e.summary)}</span></div>
+      </div>`).join("");
+    }
+    async function loadStatus() {
+      const data = await api("/api/status");
+      state.userNames = [data.config.username, ...(data.config.username_aliases || [])].filter(Boolean);
+      $("runtime").textContent = data.config.runtime || "-";
+      $("monitor").textContent = `workers ${data.config.worker_count} · discovery ${data.config.discovery_poll_seconds}s · active PR ${data.config.active_pr_poll_seconds}s · ${(data.config.monitor_repos || []).join(",") || "-"}`;
+      $("webhook-url").textContent = data.config.webhook_url || "-";
+      $("ngrok-url").textContent = data.config.ngrok_public_url ? `${data.config.ngrok_public_url}/gitea` : "-";
+      $("metric-prs").textContent = data.counts.tracked_open.pull_request || 0;
+      $("metric-issues").textContent = data.counts.tracked_open.issue || 0;
+      $("metric-jobs").textContent = data.counts.jobs.done || 0;
+      $("metric-jobs-sub").textContent = Object.entries(data.counts.jobs).map(([k,v]) => `${k}:${v}`).join("  ") || "No jobs";
+      $("metric-last").textContent = data.counts.latest_tracked_event_at || "-";
+      $("last-refresh").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+    }
+    async function loadChanges() {
+      const params = new URLSearchParams({limit: "80"});
+      if (state.stateFilter) params.set("state", state.stateFilter);
+      const data = await api(`/api/changes?${params.toString()}`);
+      $("changes-table").innerHTML = renderLog(data.events);
+      $("overview-changes").innerHTML = renderLog(data.events.slice(0, 8));
+    }
+    async function loadItems() {
+      const params = new URLSearchParams({limit: "80"});
+      if (state.itemFilter) params.set("type", state.itemFilter);
+      if (state.stateFilter) params.set("state", state.stateFilter);
+      if (state.relationFilter) params.set("relation", state.relationFilter);
+      const data = await api(`/api/items?${params.toString()}`);
+      const rows = data.items.map(i => `<tr class="${attentionNeeded(i) ? "attention-needed" : ""}">
+        <td class="mono" style="width:150px">${esc(i.changed_at)}</td>
+        <td style="width:90px">${badge(marker(i.item_type))}</td>
+        <td style="width:115px">${itemHref(i)}</td>
+        <td class="title-cell">${titleHref(i)}</td>
+        <td style="width:85px">${badge(i.state)}</td>
+        <td style="width:105px">${reviewBadge(i)}</td>
+        <td style="width:105px">${jobStatusCell(i)} ${attentionBadge(i)}</td>
+        <td style="width:155px">${relationBadges(i)}</td>
+      </tr>`);
+      $("items-table").innerHTML = table([
+        {t:"Changed", w:"150px"}, {t:"Type", w:"90px"}, {t:"Target", w:"120px"}, {t:"Title"}, {t:"State", w:"85px"}, {t:"Review", w:"105px"}, {t:"AI", w:"105px"}, {t:"Relation", w:"155px"}
+      ], rows, "No tracked items");
+      $("overview-items").innerHTML = table([
+        {t:"Type", w:"90px"}, {t:"Target", w:"120px"}, {t:"Title"}, {t:"State", w:"85px"}, {t:"Review", w:"105px"}, {t:"AI", w:"105px"}, {t:"Relation", w:"155px"}, {t:"Changed", w:"150px"}
+      ], data.items.slice(0, 10).map(i => `<tr class="${attentionNeeded(i) ? "attention-needed" : ""}">
+        <td>${badge(marker(i.item_type))}</td>
+        <td>${itemHref(i)}</td>
+        <td class="title-cell">${titleHref(i)}</td>
+        <td>${badge(i.state)}</td>
+        <td>${reviewBadge(i)}</td>
+        <td>${jobStatusCell(i)} ${attentionBadge(i)}</td>
+        <td>${relationBadges(i)}</td>
+        <td class="mono muted">${esc(i.changed_at)}</td>
+      </tr>`), "No tracked issues or PRs");
+    }
+    async function loadBoard() {
+      const data = await api("/api/items?limit=200&state=open");
+      const active = data.items.filter(i => i.state === "open");
+      const indexes = indexItems(active);
+      const visible = boardVisibleItems(data.items, indexes);
+      const prItems = visible.filter(item => item.item_type === "pull_request");
+      const issueItems = boardIssueItems(visible, indexes);
+      const groups = Object.fromEntries(boardColumns.map(col => [col.id, []]));
+      for (const item of prItems) {
+        const col = boardColumnFor(item);
+        if (groups[col]) groups[col].push(item);
+      }
+      $("kanban-board").innerHTML = boardColumns.map(col => {
+        const items = groups[col.id] || [];
+        return `<section class="kanban-column">
+          <div class="kanban-head"><span>${esc(col.title)}</span><span class="badge">${items.length}</span></div>
+          <div class="kanban-body">${items.length ? items.map(item => workCard(item, indexes)).join("") : '<div class="empty">No items</div>'}</div>
+        </section>`;
+      }).join("");
+      $("kanban-issues-count").textContent = issueItems.length;
+      $("kanban-issues").innerHTML = issueItems.length ? issueItems.map(item => issueCard(item)).join("") : '<div class="empty">No issues</div>';
+      requestAnimationFrame(fitKanbanToWindow);
+    }
+    async function loadJobs() {
+      const data = await api("/api/jobs?limit=80");
+      const rows = data.jobs.map(j => `<tr>
+        <td class="mono" style="width:150px">${esc(j.created_at)}</td>
+        <td style="width:90px">${badge(j.status)}</td>
+        <td style="width:95px">${esc(j.kind)}</td>
+        <td class="mono">${esc(j.dedupe_key)}</td>
+        <td style="width:70px">${esc(j.retry_count)}</td>
+      </tr>`);
+      $("jobs-table").innerHTML = table([{t:"Created",w:"150px"},{t:"Status",w:"90px"},{t:"Kind",w:"95px"},{t:"Key"},{t:"Retry",w:"70px"}], rows, "No jobs");
+    }
+    async function loadDeliveries() {
+      const data = await api("/api/deliveries?limit=80");
+      const rows = data.deliveries.map(d => `<tr>
+        <td class="mono" style="width:150px">${esc(d.created_at)}</td>
+        <td style="width:90px">${badge(d.status)}</td>
+        <td style="width:150px">${esc(d.event_type)}</td>
+        <td class="mono">${esc(d.dedupe_key)}</td>
+        <td>${esc(d.summary)}</td>
+      </tr>`);
+      $("deliveries-table").innerHTML = table([{t:"Created",w:"150px"},{t:"Status",w:"90px"},{t:"Event",w:"150px"},{t:"Key"},{t:"Summary"}], rows, "No deliveries");
+    }
+    async function loadTasks() {
+      const data = await api("/api/tasks?limit=80");
+      const rows = data.tasks.map(t => `<tr>
+        <td class="mono" style="width:150px">${esc(t.created_at)}</td>
+        <td style="width:95px">${badge(t.item_type === "pull_request" ? "PR" : "issue")}</td>
+        <td style="width:100px">${t.url ? `<a class="target-link" href="${esc(t.url)}" target="_blank" rel="noreferrer">#${esc(t.target_index)}</a>` : `#${esc(t.target_index)}`}</td>
+        <td class="title-cell">${t.url ? `<a href="${esc(t.url)}" target="_blank" rel="noreferrer">${esc(t.title || "(untitled)")}</a>` : esc(t.title || "(untitled)")}</td>
+        <td style="width:90px">${badge(t.runtime_status || t.runtime_used)}</td>
+        <td style="width:75px">${t.posted ? badge("posted") : badge("local")}</td>
+      </tr>`);
+      $("tasks-table").innerHTML = table([{t:"Created",w:"150px"},{t:"Type",w:"95px"},{t:"Target",w:"105px"},{t:"Title"},{t:"Runtime",w:"90px"},{t:"Post",w:"75px"}], rows, "No task packages");
+    }
+    async function refreshAll() {
+      try {
+        await loadStatus();
+        await Promise.all([loadBoard(), loadChanges(), loadItems(), loadJobs(), loadDeliveries(), loadTasks()]);
+      } catch (err) { toast(err.message); }
+    }
+    function setView(view) {
+      state.view = view;
+      document.querySelectorAll(".view").forEach(el => el.classList.toggle("hidden", el.id !== view));
+      document.querySelectorAll(".nav button").forEach(btn => btn.classList.toggle("active", btn.dataset.view === view));
+      $("view-title").textContent = document.querySelector(`.nav button[data-view="${view}"]`).textContent;
+      if (view === "board") requestAnimationFrame(fitKanbanToWindow);
+    }
+    document.querySelectorAll(".nav button").forEach(btn => btn.addEventListener("click", () => setView(btn.dataset.view)));
+    document.querySelectorAll("[data-item-filter]").forEach(btn => btn.addEventListener("click", async () => {
+      state.itemFilter = btn.dataset.itemFilter;
+      document.querySelectorAll("[data-item-filter]").forEach(x => x.classList.toggle("active", x === btn));
+      await loadItems();
+    }));
+    document.querySelectorAll("[data-state-filter]").forEach(btn => btn.addEventListener("click", async () => {
+      state.stateFilter = btn.dataset.stateFilter;
+      document.querySelectorAll("[data-state-filter]").forEach(x => x.classList.toggle("active", x === btn));
+      await Promise.all([loadBoard(), loadItems(), loadChanges()]);
+    }));
+    document.querySelectorAll("[data-relation-filter]").forEach(btn => btn.addEventListener("click", async () => {
+      state.relationFilter = btn.dataset.relationFilter;
+      document.querySelectorAll("[data-relation-filter]").forEach(x => x.classList.toggle("active", x === btn));
+      await loadItems();
+    }));
+    document.querySelectorAll("[data-board-relation-filter]").forEach(btn => btn.addEventListener("click", async () => {
+      state.boardRelationFilter = btn.dataset.boardRelationFilter;
+      document.querySelectorAll("[data-board-relation-filter]").forEach(x => x.classList.toggle("active", x === btn));
+      await loadBoard();
+    }));
+    $("theme-toggle").addEventListener("click", () => {
+      applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
+    });
+    $("sidebar-reveal").addEventListener("click", () => {
+      applySidebarCollapsed(false);
+    });
+    $("sidebar-hide").addEventListener("click", () => {
+      applySidebarCollapsed(true);
+    });
+    $("refresh").addEventListener("click", refreshAll);
+    $("monitor-once").addEventListener("click", async () => {
+      try {
+        const data = await api("/api/monitor-once", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({run_reviews:false})});
+        toast(`Monitor complete: ${data.events.length} change(s)`);
+        await refreshAll();
+      } catch (err) { toast(err.message); }
+    });
+    $("scan-stale-issues").addEventListener("click", async () => {
+      if (!confirm("Scan untackled open issues and queue stale issue handling jobs?")) return;
+      try {
+        const data = await api("/api/scan-stale-issues", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({queue_only:true})});
+        toast(`Stale scan complete: ${data.events.length} event(s), queued ${data.queued} job(s)`);
+        await refreshAll();
+      } catch (err) { toast(err.message); }
+    });
+    $("sync-reviews").addEventListener("click", async () => {
+      if (!confirm("Run PR review catch-up with runtime=none and no posting?")) return;
+      try {
+        const data = await api("/api/sync-review-requests", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runtime:"none", no_post:true})});
+        toast(`Catch-up complete: ${data.processed} job(s) processed`);
+        await refreshAll();
+      } catch (err) { toast(err.message); }
+    });
+    window.addEventListener("resize", () => requestAnimationFrame(fitKanbanToWindow));
+    refreshAll();
+    setInterval(refreshAll, 5000);
+  </script>
+</body>
+</html>
