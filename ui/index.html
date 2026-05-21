@@ -614,7 +614,10 @@
       --board-card-title-lines: 1;
       --board-card-font-size: 11px;
     }
-    #board.density-micro .work-card .work-card-meta:last-of-type,
+    #board.density-compact .work-card-footer,
+    #board.density-micro .work-card-detail,
+    #board.density-micro .work-card-footer,
+    #board.density-micro .compact-badges,
     #board.density-micro .work-card-links,
     #board.density-micro .job-text {
       display: none;
@@ -631,6 +634,7 @@
       overflow: hidden;
       font-size: var(--board-card-font-size);
       position: relative;
+      grid-template-rows: auto minmax(0, 1fr) auto auto;
     }
     .work-card.rel-created { border-left-color: var(--rel-created); background: color-mix(in srgb, var(--rel-created-soft) 34%, var(--panel)); }
     .work-card.rel-assigned { border-left-color: var(--rel-assigned); background: color-mix(in srgb, var(--rel-assigned-soft) 34%, var(--panel)); }
@@ -643,6 +647,14 @@
       -webkit-line-clamp: var(--board-card-title-lines);
       -webkit-box-orient: vertical;
       overflow: hidden;
+    }
+    .work-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      min-width: 0;
+      padding-right: 22px;
     }
     .work-card-meta {
       display: flex;
@@ -662,12 +674,59 @@
       flex: 0 0 auto;
       padding: 1px 6px;
     }
+    .work-card-detail {
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      font-size: 12px;
+    }
+    .work-card-detail > span:not(.meta-sep) {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .work-card-detail .work-card-repo {
+      color: var(--ink);
+      font-weight: 620;
+      flex: 0 1 auto;
+    }
+    .work-card-detail .work-card-author {
+      flex: 0 1 auto;
+    }
+    .work-card-detail .work-card-branch {
+      flex: 1 1 auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
+    }
+    .work-card-detail .meta-sep {
+      flex: 0 0 auto;
+      opacity: .58;
+    }
+    .work-card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      min-width: 0;
+    }
     .work-card-links {
       color: var(--muted);
       font-size: 12px;
       display: flex;
       flex-wrap: wrap;
       gap: 5px;
+      min-width: 0;
+      overflow: hidden;
+    }
+    .work-card-updated {
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      margin-left: auto;
     }
     .work-card-job {
       position: absolute;
@@ -1008,6 +1067,13 @@
       return item.has_review_request || reviews.some(r => String(r.state || "").toUpperCase() === "REQUEST_REVIEW");
     };
     const itemKey = (item) => `${item.repo}:${item.item_type}:${item.number}`;
+    const repoShortName = (repo) => String(repo || "").split("/").filter(Boolean).pop() || repo || "-";
+    const shortUser = (name) => String(name || "").split(/[\\/]/).filter(Boolean).pop() || name || "";
+    const shortBranch = (branch) => {
+      const text = String(branch || "");
+      if (!text) return "";
+      return text.length > 34 ? `...${text.slice(-31)}` : text;
+    };
     const relationshipMatches = (item, relation) => {
       if (!relation || relation === "all") return true;
       const rel = item.relationships || {};
@@ -1110,11 +1176,20 @@
       }
       return parts.length ? `<div class="work-card-links">${parts.join("")}</div>` : "";
     };
+    const workCardDetail = (item) => {
+      const snapshot = item.snapshot || {};
+      const bits = [`<span class="work-card-repo" title="${esc(item.repo || "")}">${esc(repoShortName(item.repo))}</span>`];
+      if (item.author) bits.push(`<span class="meta-sep">/</span><span class="work-card-author" title="${esc(item.author)}">${esc(shortUser(item.author))}</span>`);
+      const branch = shortBranch(snapshot.head || "");
+      if (branch) bits.push(`<span class="meta-sep">·</span><span class="work-card-branch" title="${esc(snapshot.head || "")}">${esc(branch)}</span>`);
+      return `<div class="work-card-detail">${bits.join("")}</div>`;
+    };
     const workCard = (item, indexes) => `<div class="work-card ${cardRelationClass(item)}${attentionClass(item)}">
       <div class="work-card-job">${jobStatusIcon(item)}</div>
-      <div class="work-card-meta">${itemHref(item)} ${compactStatusBadges(item)}</div>
+      <div class="work-card-header"><div class="work-card-meta">${itemHref(item)}</div>${compactStatusBadges(item)}</div>
       <div class="work-card-title">${titleHref(item)}</div>
-      ${cardLinks(item, indexes)}
+      ${workCardDetail(item)}
+      <div class="work-card-footer">${cardLinks(item, indexes)}<span class="work-card-updated">${esc(item.changed_at || "")}</span></div>
     </div>`;
     const issueCard = (item) => `<div class="issue-card ${cardRelationClass(item)}${attentionClass(item)}">
       <div class="work-card-meta">${itemHref(item)} ${issueTriageBadge(item)} ${jobStatusIcon(item)} ${attentionBadge(item)}</div>

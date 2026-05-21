@@ -1101,6 +1101,19 @@ Still valid and should be assigned.
         self.assertNotIn("reviewBadge(item)", card_badges)
         self.assertIn("attentionBadge(item)", card_badges)
 
+    def test_pr_cards_render_compact_context_details(self):
+        ui = a2a_runner.load_ui_html()
+        marker = "const workCard ="
+        start = ui.index(marker)
+        end = ui.index("const issueCard =", start)
+        work_card = ui[start:end]
+
+        self.assertIn("workCardDetail(item)", work_card)
+        self.assertIn("work-card-header", work_card)
+        self.assertIn("work-card-footer", work_card)
+        self.assertIn("work-card-updated", work_card)
+        self.assertIn("cardLinks(item, indexes)", work_card)
+
     def test_board_issue_row_filters_to_related_issues(self):
         ui = a2a_runner.load_ui_html()
 
