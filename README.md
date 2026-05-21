@@ -1,6 +1,6 @@
 # A2A Agent Runner
 
-Local demo for basic Gitea issue and PR review automation, kept outside product workspaces.
+Local runner for basic Gitea issue and PR review automation, kept outside product workspaces.
 
 ## Scope
 
@@ -31,6 +31,19 @@ Runtime binary overrides:
 A2A_CODEX_BIN=/Applications/Codex.app/Contents/Resources/codex bin/a2a-agent-runner pr-review 443 --runtime codex
 A2A_CLAUDE_BIN=/path/to/claude bin/a2a-agent-runner pr-review 443 --runtime claude
 ```
+
+## Repository Layout
+
+```text
+bin/a2a-agent-runner          # thin executable wrapper
+a2a_agent_runner/runner.py    # runner implementation
+ui/index.html                 # canonical dashboard asset
+tests/                        # unit tests for tracking, polling, UI guards, and CLI parsing
+```
+
+The executable wrapper only adds the repository root to `sys.path` and calls
+`a2a_agent_runner.runner.main()`. Keep new behavior in the package module rather
+than in `bin/`.
 
 ## Commands
 
@@ -115,7 +128,7 @@ Initialize local webhook env:
 bin/a2a-agent-runner webhook --init-env
 ```
 
-Run everything needed for the local demo from one process:
+Run everything needed for the local runner from one process:
 
 ```bash
 bin/a2a-agent-runner serve --ngrok

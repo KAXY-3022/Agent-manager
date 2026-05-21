@@ -1,4 +1,3 @@
-import importlib.machinery
 import json
 import threading
 import tempfile
@@ -6,19 +5,16 @@ import unittest
 from unittest import mock
 from pathlib import Path
 
-
-MODULE_PATH = Path(__file__).resolve().parents[1] / "bin" / "a2a-agent-runner"
-loader = importlib.machinery.SourceFileLoader("a2a_issue_demo", str(MODULE_PATH))
-a2a_issue_demo = loader.load_module()
+from a2a_agent_runner import runner as a2a_runner
 
 
 class RunnerStateTests(unittest.TestCase):
     def make_store(self, tmpdir: str):
-        return a2a_issue_demo.WebhookStateStore(Path(tmpdir) / "state.sqlite3")
+        return a2a_runner.WebhookStateStore(Path(tmpdir) / "state.sqlite3")
 
     def make_config(self, tmpdir: str, *, webhook_triggers_enabled: bool = True):
         root = Path(tmpdir)
-        return a2a_issue_demo.WebhookConfig(
+        return a2a_runner.WebhookConfig(
             runner_home=root,
             a2a_root=root,
             host="127.0.0.1",
@@ -120,7 +116,7 @@ class RunnerStateTests(unittest.TestCase):
         self.assertTrue(items[0]["relationships"]["related_to_me"])
 
     def test_successful_current_head_review_clears_failed_job_badge(self):
-        original_iter_records = a2a_issue_demo.iter_records
+        original_iter_records = a2a_runner.iter_records
         with tempfile.TemporaryDirectory() as tmpdir:
             store = self.make_store(tmpdir)
             head_sha = "abc123"
@@ -173,18 +169,18 @@ class RunnerStateTests(unittest.TestCase):
                     },
                 ),
             ]
-            a2a_issue_demo.iter_records = lambda: records
+            a2a_runner.iter_records = lambda: records
             try:
                 items = store.tracked_items_dicts(10, username="Dev.User", state_filter="open")
             finally:
-                a2a_issue_demo.iter_records = original_iter_records
+                a2a_runner.iter_records = original_iter_records
 
         self.assertEqual(len(items), 1)
         self.assertTrue(items[0]["review_status"]["reviewed"])
         self.assertEqual(items[0]["job_status"], {})
 
     def test_successful_current_head_review_clears_stale_running_job_badge(self):
-        original_iter_records = a2a_issue_demo.iter_records
+        original_iter_records = a2a_runner.iter_records
         with tempfile.TemporaryDirectory() as tmpdir:
             store = self.make_store(tmpdir)
             head_sha = "abc123"
@@ -207,7 +203,7 @@ class RunnerStateTests(unittest.TestCase):
             )
             store.record_delivery("delivery-1", "pr_comment_active", f"ExampleOrg/service-api#2@{head_sha}:comment-1", "running", "stale running")
             store.reserve_or_retry_job(
-                a2a_issue_demo.WebhookJob(
+                a2a_runner.WebhookJob(
                     kind="pr_review",
                     delivery_id="delivery-1",
                     event_type="pr_comment_active",
@@ -224,7 +220,7 @@ class RunnerStateTests(unittest.TestCase):
             store.update_job(f"ExampleOrg/service-api#2@{head_sha}:comment-1", "running")
             task_dir = Path(tmpdir) / "success"
             task_dir.mkdir()
-            a2a_issue_demo.iter_records = lambda: [
+            a2a_runner.iter_records = lambda: [
                 (
                     task_dir,
                     {
@@ -242,18 +238,18 @@ class RunnerStateTests(unittest.TestCase):
             try:
                 items = store.tracked_items_dicts(10, username="Dev.User", state_filter="open")
             finally:
-                a2a_issue_demo.iter_records = original_iter_records
+                a2a_runner.iter_records = original_iter_records
 
         self.assertEqual(len(items), 1)
         self.assertTrue(items[0]["review_status"]["reviewed"])
         self.assertEqual(items[0]["job_status"], {})
 
     def test_previous_head_review_is_stale_for_current_head(self):
-        original_iter_records = a2a_issue_demo.iter_records
+        original_iter_records = a2a_runner.iter_records
         with tempfile.TemporaryDirectory() as tmpdir:
             previous_dir = Path(tmpdir) / "previous"
             previous_dir.mkdir()
-            a2a_issue_demo.iter_records = lambda: [
+            a2a_runner.iter_records = lambda: [
                 (
                     previous_dir,
                     {
@@ -269,23 +265,23 @@ class RunnerStateTests(unittest.TestCase):
                 )
             ]
             try:
-                status = a2a_issue_demo.review_status_for_item(
+                status = a2a_runner.review_status_for_item(
                     "ExampleOrg/project-core", "pull_request", 464, "d0d6ed79"
                 )
             finally:
-                a2a_issue_demo.iter_records = original_iter_records
+                a2a_runner.iter_records = original_iter_records
 
         self.assertFalse(status["reviewed"])
         self.assertTrue(status["stale"])
 
     def test_issue_triage_status_marks_mid_and_hard_as_human_attention(self):
-        original_iter_records = a2a_issue_demo.iter_records
+        original_iter_records = a2a_runner.iter_records
         with tempfile.TemporaryDirectory() as tmpdir:
             mid_dir = Path(tmpdir) / "mid"
             hard_dir = Path(tmpdir) / "hard"
             mid_dir.mkdir()
             hard_dir.mkdir()
-            a2a_issue_demo.iter_records = lambda: [
+            a2a_runner.iter_records = lambda: [
                 (
                     mid_dir,
                     {
@@ -313,10 +309,10 @@ class RunnerStateTests(unittest.TestCase):
                 ),
             ]
             try:
-                mid_status = a2a_issue_demo.issue_triage_status_for_item("ExampleOrg/project-core", "issue", 398)
-                hard_status = a2a_issue_demo.issue_triage_status_for_item("ExampleOrg/project-core", "issue", 399)
+                mid_status = a2a_runner.issue_triage_status_for_item("ExampleOrg/project-core", "issue", 398)
+                hard_status = a2a_runner.issue_triage_status_for_item("ExampleOrg/project-core", "issue", 399)
             finally:
-                a2a_issue_demo.iter_records = original_iter_records
+                a2a_runner.iter_records = original_iter_records
 
         self.assertEqual(mid_status["label"], "plan review")
         self.assertTrue(mid_status["human_attention"])
@@ -326,7 +322,7 @@ class RunnerStateTests(unittest.TestCase):
         self.assertEqual(hard_status["attention_reason"], "Issue needs human ownership")
 
     def test_tracked_issue_includes_latest_triage_status(self):
-        original_iter_records = a2a_issue_demo.iter_records
+        original_iter_records = a2a_runner.iter_records
         with tempfile.TemporaryDirectory() as tmpdir:
             store = self.make_store(tmpdir)
             store.record_tracking_snapshot(
@@ -344,7 +340,7 @@ class RunnerStateTests(unittest.TestCase):
             )
             task_dir = Path(tmpdir) / "task"
             task_dir.mkdir()
-            a2a_issue_demo.iter_records = lambda: [
+            a2a_runner.iter_records = lambda: [
                 (
                     task_dir,
                     {
@@ -361,7 +357,7 @@ class RunnerStateTests(unittest.TestCase):
             try:
                 items = store.tracked_items_dicts(10, username="Dev.User", state_filter="open")
             finally:
-                a2a_issue_demo.iter_records = original_iter_records
+                a2a_runner.iter_records = original_iter_records
 
         self.assertEqual(len(items), 1)
         self.assertEqual(items[0]["review_status"]["label"], "plan review")
@@ -487,17 +483,17 @@ class RunnerStateTests(unittest.TestCase):
         }
 
         expected = ("Dev.User",)
-        self.assertTrue(a2a_issue_demo.has_new_external_comment(old_snapshot, other_user_snapshot, expected))
-        self.assertFalse(a2a_issue_demo.has_new_external_comment(old_snapshot, own_reply_snapshot, expected))
+        self.assertTrue(a2a_runner.has_new_external_comment(old_snapshot, other_user_snapshot, expected))
+        self.assertFalse(a2a_runner.has_new_external_comment(old_snapshot, own_reply_snapshot, expected))
         self.assertTrue(
-            a2a_issue_demo.new_external_pr_author_comment(
+            a2a_runner.new_external_pr_author_comment(
                 old_snapshot,
                 {**other_user_snapshot, "author": "Wang.JiaXuan"},
                 expected,
             )
         )
         self.assertFalse(
-            a2a_issue_demo.new_external_pr_author_comment(
+            a2a_runner.new_external_pr_author_comment(
                 old_snapshot,
                 {**other_user_snapshot, "author": "Reviewer.Two"},
                 expected,
@@ -507,17 +503,17 @@ class RunnerStateTests(unittest.TestCase):
     def test_comment_reply_job_maps_to_pr_item(self):
         key = "ExampleOrg/project-core#450@819a45:comment-f518c8537592"
         self.assertEqual(
-            a2a_issue_demo.job_tracking_item_key(key, "pr_review"),
+            a2a_runner.job_tracking_item_key(key, "pr_review"),
             "ExampleOrg/project-core#pr-450",
         )
 
     def test_pull_number_parser_prefers_pulls_url_over_domain_digits(self):
         output = "Created: https://gitea.example.com/ExampleOrg/project-core/pulls/472"
 
-        self.assertEqual(a2a_issue_demo.pull_number_from_create_output(output), 472)
+        self.assertEqual(a2a_runner.pull_number_from_create_output(output), 472)
 
     def test_review_comment_reviewer_is_treated_as_author(self):
-        comments = a2a_issue_demo.compact_comments(
+        comments = a2a_runner.compact_comments(
             [
                 {
                     "id": 10,
@@ -533,9 +529,9 @@ class RunnerStateTests(unittest.TestCase):
     def test_disabled_webhook_triggers_do_not_record_or_queue_jobs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = self.make_config(tmpdir, webhook_triggers_enabled=False)
-            bridge = a2a_issue_demo.WebhookBridge(config, start_worker=False)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
             body = json.dumps({"action": "assigned", "issue": {"number": 1}}).encode("utf-8")
-            headers = a2a_issue_demo.signed_webhook_headers(config, "issues", "delivery-1", body)
+            headers = a2a_runner.signed_webhook_headers(config, "issues", "delivery-1", body)
 
             response = bridge.handle_webhook(headers, body)
 
@@ -547,9 +543,9 @@ class RunnerStateTests(unittest.TestCase):
     def test_bridge_test_still_records_when_webhook_triggers_are_disabled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = self.make_config(tmpdir, webhook_triggers_enabled=False)
-            bridge = a2a_issue_demo.WebhookBridge(config, start_worker=False)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
             body = json.dumps({"message": "ok"}).encode("utf-8")
-            headers = a2a_issue_demo.signed_webhook_headers(config, "bridge_test", "delivery-bridge", body)
+            headers = a2a_runner.signed_webhook_headers(config, "bridge_test", "delivery-bridge", body)
 
             response = bridge.handle_webhook(headers, body)
 
@@ -572,10 +568,10 @@ easy-direct
 - complexity: 2
 
 ## Verification
-Focused verification command: `python -m unittest tests/test_a2a_issue_demo.py`
+Focused verification command: `python -m unittest tests/test_a2a_runner.py`
 """
 
-        passed, reasons, metadata = a2a_issue_demo.issue_strict_easy_gate(
+        passed, reasons, metadata = a2a_runner.issue_strict_easy_gate(
             review,
             {"title": "Small UI fix", "body": "Update a local label.", "labels": []},
         )
@@ -596,10 +592,10 @@ mid-human-review
 - complexity: 1
 
 ## Verification
-- python -m unittest tests/test_a2a_issue_demo.py
+- python -m unittest tests/test_a2a_runner.py
 """
 
-        passed, reasons, metadata = a2a_issue_demo.issue_strict_easy_gate(
+        passed, reasons, metadata = a2a_runner.issue_strict_easy_gate(
             review,
             {"title": "Add schema migration", "body": "Needs migration and production rollout.", "labels": []},
         )
@@ -611,7 +607,7 @@ mid-human-review
 
     def test_discovery_poll_queues_assigned_issue_once(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = a2a_issue_demo.WebhookConfig(
+            config = a2a_runner.WebhookConfig(
                 **{
                     **self.make_config(tmpdir).__dict__,
                     "monitor_repos": ("ExampleOrg/project-core",),
@@ -630,11 +626,11 @@ mid-human-review
                 "labels": [],
                 "comments": [],
             }
-            bridge = a2a_issue_demo.WebhookBridge(config, start_worker=False)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
 
-            with mock.patch.object(a2a_issue_demo, "list_open_issues", return_value=[{"index": 398}]), \
-                mock.patch.object(a2a_issue_demo, "fetch_issue", return_value=issue), \
-                mock.patch.object(a2a_issue_demo, "list_open_prs", return_value=[]):
+            with mock.patch.object(a2a_runner, "list_open_issues", return_value=[{"index": 398}]), \
+                mock.patch.object(a2a_runner, "fetch_issue", return_value=issue), \
+                mock.patch.object(a2a_runner, "list_open_prs", return_value=[]):
                 events = bridge.discovery_once()
                 size_after_first = bridge.jobs.qsize()
                 bridge.discovery_once()
@@ -648,7 +644,7 @@ mid-human-review
 
     def test_active_pr_poll_queues_review_when_request_added_after_creation(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = a2a_issue_demo.WebhookConfig(
+            config = a2a_runner.WebhookConfig(
                 **{
                     **self.make_config(tmpdir).__dict__,
                     "monitor_repos": ("ExampleOrg/project-core",),
@@ -656,7 +652,7 @@ mid-human-review
                     "monitor_pr_reviews": True,
                 }
             )
-            bridge = a2a_issue_demo.WebhookBridge(config, start_worker=False)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
             bridge.store.record_tracking_snapshot(
                 {
                     "repo": "ExampleOrg/project-core",
@@ -687,8 +683,8 @@ mid-human-review
                 "comments": [],
             }
 
-            with mock.patch.object(a2a_issue_demo, "fetch_pr", return_value=pr), \
-                mock.patch.object(a2a_issue_demo, "fetch_pr_review_comments", return_value=[]):
+            with mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
                 events = bridge.active_pr_once()
 
             self.assertIn("queued requested review", "\n".join(events))
@@ -698,7 +694,7 @@ mid-human-review
 
     def test_active_pr_poll_queues_rereview_when_requested_head_changes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = a2a_issue_demo.WebhookConfig(
+            config = a2a_runner.WebhookConfig(
                 **{
                     **self.make_config(tmpdir).__dict__,
                     "monitor_repos": ("ExampleOrg/project-core",),
@@ -706,7 +702,7 @@ mid-human-review
                     "monitor_pr_reviews": True,
                 }
             )
-            bridge = a2a_issue_demo.WebhookBridge(config, start_worker=False)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
             bridge.store.record_tracking_snapshot(
                 {
                     "repo": "ExampleOrg/project-core",
@@ -737,8 +733,8 @@ mid-human-review
                 "comments": [],
             }
 
-            with mock.patch.object(a2a_issue_demo, "fetch_pr", return_value=pr), \
-                mock.patch.object(a2a_issue_demo, "fetch_pr_review_comments", return_value=[]):
+            with mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
                 bridge.active_pr_once()
 
             job = bridge.jobs.get_nowait()
@@ -746,7 +742,7 @@ mid-human-review
 
     def test_active_pr_poll_replies_only_for_reviewer_delegate_not_author_pr(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = a2a_issue_demo.WebhookConfig(
+            config = a2a_runner.WebhookConfig(
                 **{
                     **self.make_config(tmpdir).__dict__,
                     "monitor_repos": ("ExampleOrg/project-core",),
@@ -754,7 +750,7 @@ mid-human-review
                     "monitor_pr_reviews": True,
                 }
             )
-            bridge = a2a_issue_demo.WebhookBridge(config, start_worker=False)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
             previous = {
                 "repo": "ExampleOrg/project-core",
                 "item_type": "pull_request",
@@ -787,15 +783,15 @@ mid-human-review
                 ],
             }
 
-            with mock.patch.object(a2a_issue_demo, "fetch_pr", return_value=pr), \
-                mock.patch.object(a2a_issue_demo, "fetch_pr_review_comments", return_value=[]):
+            with mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
                 bridge.active_pr_once()
 
             delegate_job = bridge.jobs.get_nowait()
             self.assertIn(":comment-", delegate_job.dedupe_key)
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = a2a_issue_demo.WebhookConfig(
+            config = a2a_runner.WebhookConfig(
                 **{
                     **self.make_config(tmpdir).__dict__,
                     "monitor_repos": ("ExampleOrg/project-core",),
@@ -803,7 +799,7 @@ mid-human-review
                     "monitor_pr_reviews": True,
                 }
             )
-            bridge = a2a_issue_demo.WebhookBridge(config, start_worker=False)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
             bridge.store.record_tracking_snapshot(
                 {
                     **previous,
@@ -820,14 +816,14 @@ mid-human-review
                 "requested_reviewers": [],
             }
 
-            with mock.patch.object(a2a_issue_demo, "fetch_pr", return_value=own_pr), \
-                mock.patch.object(a2a_issue_demo, "fetch_pr_review_comments", return_value=[]):
+            with mock.patch.object(a2a_runner, "fetch_pr", return_value=own_pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
                 bridge.active_pr_once()
 
             self.assertTrue(bridge.jobs.empty())
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = a2a_issue_demo.WebhookConfig(
+            config = a2a_runner.WebhookConfig(
                 **{
                     **self.make_config(tmpdir).__dict__,
                     "monitor_repos": ("ExampleOrg/project-core",),
@@ -835,7 +831,7 @@ mid-human-review
                     "monitor_pr_reviews": True,
                 }
             )
-            bridge = a2a_issue_demo.WebhookBridge(config, start_worker=False)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
             bridge.store.record_tracking_snapshot(
                 {
                     **previous,
@@ -852,22 +848,22 @@ mid-human-review
                 ],
             }
 
-            with mock.patch.object(a2a_issue_demo, "fetch_pr", return_value=reviewer_comment_pr), \
-                mock.patch.object(a2a_issue_demo, "fetch_pr_review_comments", return_value=[]):
+            with mock.patch.object(a2a_runner, "fetch_pr", return_value=reviewer_comment_pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
                 bridge.active_pr_once()
 
             self.assertTrue(bridge.jobs.empty())
 
     def test_stale_issue_scan_queues_only_untackled_external_issues(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = a2a_issue_demo.WebhookConfig(
+            config = a2a_runner.WebhookConfig(
                 **{
                     **self.make_config(tmpdir).__dict__,
                     "monitor_repos": ("ExampleOrg/project-core",),
                     "monitor_limit": 10,
                 }
             )
-            bridge = a2a_issue_demo.WebhookBridge(config, start_worker=False)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
             issues = {
                 "1": {
                     "index": 1,
@@ -905,10 +901,10 @@ mid-human-review
             }
 
             with mock.patch.object(
-                a2a_issue_demo,
+                a2a_runner,
                 "list_open_issues",
                 return_value=[{"index": 1}, {"index": 2}, {"index": 3}],
-            ), mock.patch.object(a2a_issue_demo, "fetch_issue", side_effect=lambda number, repo, timeout=10: issues[number]):
+            ), mock.patch.object(a2a_runner, "fetch_issue", side_effect=lambda number, repo, timeout=10: issues[number]):
                 events = bridge.stale_issues_once()
 
             self.assertIn("queued stale issue scan", "\n".join(events))
@@ -921,14 +917,14 @@ mid-human-review
 
     def test_stale_issue_scan_related_issue_queues_assessment(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = a2a_issue_demo.WebhookConfig(
+            config = a2a_runner.WebhookConfig(
                 **{
                     **self.make_config(tmpdir).__dict__,
                     "monitor_repos": ("ExampleOrg/project-core",),
                     "monitor_limit": 10,
                 }
             )
-            bridge = a2a_issue_demo.WebhookBridge(config, start_worker=False)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
             issue = {
                 "index": 4,
                 "state": "open",
@@ -941,8 +937,8 @@ mid-human-review
                 "comments": [],
             }
 
-            with mock.patch.object(a2a_issue_demo, "list_open_issues", return_value=[{"index": 4}]), \
-                mock.patch.object(a2a_issue_demo, "fetch_issue", return_value=issue):
+            with mock.patch.object(a2a_runner, "list_open_issues", return_value=[{"index": 4}]), \
+                mock.patch.object(a2a_runner, "fetch_issue", return_value=issue):
                 events = bridge.stale_issues_once()
 
             self.assertIn("queued related issue assessment", "\n".join(events))
@@ -962,20 +958,20 @@ Alice.Dev
 Still valid and should be assigned.
 """
 
-        self.assertEqual(a2a_issue_demo.extract_stale_issue_decision(review), "still-valid-assign")
+        self.assertEqual(a2a_runner.extract_stale_issue_decision(review), "still-valid-assign")
         self.assertEqual(
-            a2a_issue_demo.extract_candidate_assignment(review, ("Alice.Dev", "Bob.Dev")),
+            a2a_runner.extract_candidate_assignment(review, ("Alice.Dev", "Bob.Dev")),
             "Alice.Dev",
         )
-        self.assertIn("Automated stale issue scan", a2a_issue_demo.format_stale_issue_comment(review))
+        self.assertIn("Automated stale issue scan", a2a_runner.format_stale_issue_comment(review))
         self.assertEqual(
-            a2a_issue_demo.job_tracking_item_key("ExampleOrg/project-core#stale-1:abc123", "issue_stale_scan"),
+            a2a_runner.job_tracking_item_key("ExampleOrg/project-core#stale-1:abc123", "issue_stale_scan"),
             "ExampleOrg/project-core#issue-1",
         )
 
     def test_discovery_reconcile_archives_closed_issue_snapshot(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            config = a2a_issue_demo.WebhookConfig(
+            config = a2a_runner.WebhookConfig(
                 **{
                     **self.make_config(tmpdir).__dict__,
                     "monitor_repos": ("ExampleOrg/project-core",),
@@ -983,7 +979,7 @@ Still valid and should be assigned.
                     "monitor_pr_reviews": False,
                 }
             )
-            bridge = a2a_issue_demo.WebhookBridge(config, start_worker=False)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
             bridge.store.record_tracking_snapshot(
                 {
                     "repo": "ExampleOrg/project-core",
@@ -1010,9 +1006,9 @@ Still valid and should be assigned.
                 "comments": [],
             }
 
-            with mock.patch.object(a2a_issue_demo, "list_open_issues", return_value=[]), \
-                mock.patch.object(a2a_issue_demo, "fetch_issue", return_value=closed_issue), \
-                mock.patch.object(a2a_issue_demo, "list_open_prs", return_value=[]):
+            with mock.patch.object(a2a_runner, "list_open_issues", return_value=[]), \
+                mock.patch.object(a2a_runner, "fetch_issue", return_value=closed_issue), \
+                mock.patch.object(a2a_runner, "list_open_prs", return_value=[]):
                 bridge.discovery_once()
 
             snapshot = bridge.store.tracking_snapshot("ExampleOrg/project-core", "issue", 398)
@@ -1038,14 +1034,14 @@ Still valid and should be assigned.
             ]
         )
 
-        self.assertEqual(a2a_issue_demo.diff_file_paths(diff), ["a.py", "docs/new.md"])
-        summary = a2a_issue_demo.render_diff_file_summary(diff)
+        self.assertEqual(a2a_runner.diff_file_paths(diff), ["a.py", "docs/new.md"])
+        summary = a2a_runner.render_diff_file_summary(diff)
         self.assertIn("Changed files: 2", summary)
         self.assertIn("`docs/new.md`", summary)
 
     def test_pr_manifest_warns_about_stale_local_refs_and_lists_diff_files(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            manifest = a2a_issue_demo.render_pr_manifest(
+            manifest = a2a_runner.render_pr_manifest(
                 {
                     "index": 460,
                     "title": "Example",
@@ -1083,10 +1079,10 @@ Still valid and should be assigned.
 - The prompt-provided diff was truncated and the full diff.patch artifact was not available.
 """
 
-        self.assertTrue(a2a_issue_demo.pr_review_low_confidence_reason(review))
+        self.assertTrue(a2a_runner.pr_review_low_confidence_reason(review))
 
     def test_issue_row_cards_do_not_render_linked_prs(self):
-        ui = a2a_issue_demo.load_ui_html()
+        ui = a2a_runner.load_ui_html()
         marker = "const issueCard ="
         start = ui.index(marker)
         end = ui.index("function fitKanbanToWindow", start)
@@ -1095,7 +1091,7 @@ Still valid and should be assigned.
         self.assertNotIn("cardLinks", issue_card)
 
     def test_board_issue_row_filters_to_related_issues(self):
-        ui = a2a_issue_demo.load_ui_html()
+        ui = a2a_runner.load_ui_html()
 
         self.assertIn("const issueHasTrackedPr =", ui)
         self.assertIn("snapshot.has_open_linked_pr", ui)
@@ -1106,7 +1102,7 @@ Still valid and should be assigned.
         self.assertIn("const issueItems = boardIssueItems(visible, indexes);", ui)
 
     def test_human_attention_items_blink_in_dashboard(self):
-        ui = a2a_issue_demo.load_ui_html()
+        ui = a2a_runner.load_ui_html()
 
         self.assertIn("attention-needed", ui)
         self.assertIn("const attentionReason =", ui)
@@ -1118,11 +1114,11 @@ Still valid and should be assigned.
         self.assertIn("scan-stale-issues", ui)
 
     def test_dashboard_ui_loads_from_disk_when_available(self):
-        self.assertTrue(a2a_issue_demo.UI_HTML_PATH.exists())
-        self.assertIn("A2A Agent Runner", a2a_issue_demo.load_ui_html())
+        self.assertTrue(a2a_runner.UI_HTML_PATH.exists())
+        self.assertIn("A2A Agent Runner", a2a_runner.load_ui_html())
 
     def test_ngrok_command_targets_webhook_url_with_extra_args(self):
-        cmd = a2a_issue_demo.build_ngrok_command(
+        cmd = a2a_runner.build_ngrok_command(
             "/usr/local/bin/ngrok",
             "http://127.0.0.1:48731",
             ("--domain=example.ngrok-free.app",),
@@ -1139,23 +1135,23 @@ Still valid and should be assigned.
         )
 
     def test_parser_has_all_in_one_serve_command(self):
-        parser = a2a_issue_demo.build_parser()
+        parser = a2a_runner.build_parser()
         args = parser.parse_args(["serve", "--ngrok", "--ui-port", "48730", "--workers", "2"])
 
-        self.assertIs(args.func, a2a_issue_demo.command_serve)
+        self.assertIs(args.func, a2a_runner.command_serve)
         self.assertTrue(args.ngrok)
         self.assertEqual(args.ui_port, 48730)
         self.assertEqual(args.workers, 2)
         self.assertFalse(args.no_reclaim_ports)
 
     def test_parser_can_disable_startup_port_reclaim(self):
-        parser = a2a_issue_demo.build_parser()
+        parser = a2a_runner.build_parser()
         args = parser.parse_args(["serve", "--no-reclaim-ports"])
 
         self.assertTrue(args.no_reclaim_ports)
 
     def test_lsof_field_output_parser_groups_port_owners(self):
-        owners = a2a_issue_demo.parse_lsof_field_output(
+        owners = a2a_runner.parse_lsof_field_output(
             "p17480\ncPython\nn127.0.0.1:48731\np17505\ncngrok\nn127.0.0.1:4040\n"
         )
 
@@ -1166,7 +1162,7 @@ Still valid and should be assigned.
 
     def test_startup_port_reclaim_only_allows_runner_or_ngrok_processes(self):
         self.assertTrue(
-            a2a_issue_demo.is_reclaimable_serve_owner(
+            a2a_runner.is_reclaimable_serve_owner(
                 {
                     "pid": "12345",
                     "command": "Python",
@@ -1175,12 +1171,12 @@ Still valid and should be assigned.
             )
         )
         self.assertFalse(
-            a2a_issue_demo.is_reclaimable_serve_owner(
+            a2a_runner.is_reclaimable_serve_owner(
                 {"pid": "12346", "command": "Python", "command_line": "/usr/bin/python3 other_server.py"}
             )
         )
         self.assertTrue(
-            a2a_issue_demo.is_reclaimable_ngrok_owner(
+            a2a_runner.is_reclaimable_ngrok_owner(
                 {"pid": "12347", "command": "ngrok", "command_line": "/opt/homebrew/bin/ngrok http 127.0.0.1:48731"}
             )
         )
@@ -1188,7 +1184,7 @@ Still valid and should be assigned.
     def test_worker_pool_starts_configured_worker_count(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = self.make_config(tmpdir)
-            bridge = a2a_issue_demo.WebhookBridge(config, start_worker=True)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=True)
             try:
                 self.assertEqual(len(bridge._workers), 2)
             finally:
@@ -1197,8 +1193,8 @@ Still valid and should be assigned.
     def test_running_jobs_are_recovered_and_rehydrated_on_startup(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = self.make_config(tmpdir)
-            store = a2a_issue_demo.WebhookStateStore(config.state_db)
-            job = a2a_issue_demo.WebhookJob(
+            store = a2a_runner.WebhookStateStore(config.state_db)
+            job = a2a_runner.WebhookJob(
                 kind="pr_review",
                 delivery_id="delivery-1",
                 event_type="pr_review_active",
@@ -1226,14 +1222,14 @@ Still valid and should be assigned.
 
     def test_codex_model_args_include_model_and_reasoning_effort(self):
         self.assertEqual(
-            a2a_issue_demo.codex_model_args("gpt-5.5", "mid"),
+            a2a_runner.codex_model_args("gpt-5.5", "mid"),
             ["--model", "gpt-5.5", "-c", 'model_reasoning_effort="medium"'],
         )
 
     def test_job_model_policy_routes_issue_pr_and_comment_jobs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            bridge = a2a_issue_demo.WebhookBridge(self.make_config(tmpdir), start_worker=False)
-            issue_job = a2a_issue_demo.WebhookJob(
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            issue_job = a2a_runner.WebhookJob(
                 kind="issue",
                 delivery_id="issue-1",
                 event_type="issue_discovery",
@@ -1244,7 +1240,7 @@ Still valid and should be assigned.
                 title="",
                 url="",
             )
-            pr_job = a2a_issue_demo.WebhookJob(
+            pr_job = a2a_runner.WebhookJob(
                 kind="pr_review",
                 delivery_id="pr-1",
                 event_type="pr_review_active",
@@ -1256,7 +1252,7 @@ Still valid and should be assigned.
                 url="",
                 head_sha="abc123",
             )
-            comment_job = a2a_issue_demo.WebhookJob(
+            comment_job = a2a_runner.WebhookJob(
                 kind="pr_review",
                 delivery_id="comment-1",
                 event_type="pr_comment_active",
@@ -1274,15 +1270,15 @@ Still valid and should be assigned.
             self.assertEqual(bridge._model_policy_for_job(comment_job), ("gpt-5.5", "medium"))
 
     def test_address_in_use_message_explains_duplicate_runner(self):
-        message = a2a_issue_demo.address_in_use_message("webhook listener", "127.0.0.1", 48731)
+        message = a2a_runner.address_in_use_message("webhook listener", "127.0.0.1", 48731)
 
         self.assertIn("127.0.0.1:48731", message)
         self.assertIn("Another A2A runner", message)
         self.assertIn("--webhook-port", message)
 
     def test_reusable_http_server_releases_ports_promptly(self):
-        self.assertTrue(a2a_issue_demo.ReusableThreadingHTTPServer.allow_reuse_address)
-        self.assertTrue(a2a_issue_demo.ReusableThreadingHTTPServer.daemon_threads)
+        self.assertTrue(a2a_runner.ReusableThreadingHTTPServer.allow_reuse_address)
+        self.assertTrue(a2a_runner.ReusableThreadingHTTPServer.daemon_threads)
 
     def test_bridge_shutdown_tolerates_second_keyboard_interrupt(self):
         class InterruptingThread:
@@ -1291,7 +1287,7 @@ Still valid and should be assigned.
             def join(self, timeout=None):
                 raise KeyboardInterrupt
 
-        bridge = a2a_issue_demo.WebhookBridge.__new__(a2a_issue_demo.WebhookBridge)
+        bridge = a2a_runner.WebhookBridge.__new__(a2a_runner.WebhookBridge)
         bridge._stop = threading.Event()
         bridge._worker = InterruptingThread()
         bridge._poller = None
