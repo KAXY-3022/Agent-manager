@@ -1369,6 +1369,71 @@ Still valid and should be assigned.
 
         self.assertFalse(called)
 
+    def test_transient_job_error_requeues_instead_of_failing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="timeout-1",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#460@abc123",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=460,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/460",
+                head_sha="abc123",
+            )
+            bridge.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "queued", "queued")
+            bridge.store.reserve_or_retry_job(job, retry_limit=0)
+            original_run_job = bridge._run_job
+            bridge._run_job = lambda _job: (_ for _ in ()).throw(
+                a2a_runner.DemoError("failed to fetch PR #460: connect: operation timed out")
+            )
+            try:
+                with self.assertLogs(level="WARNING"):
+                    bridge.process_job(job)
+            finally:
+                bridge._run_job = original_run_job
+
+            self.assertEqual(bridge.store.job_status_for_key(job.dedupe_key), "queued")
+            pending = bridge.store.pending_jobs()
+            deliveries = bridge.store.recent_deliveries(limit=1)
+
+        self.assertEqual([pending_job.dedupe_key for pending_job in pending], [job.dedupe_key])
+        self.assertEqual(deliveries[0]["status"], "queued")
+        self.assertIn("transient failure", deliveries[0]["summary"])
+
+    def test_non_transient_job_error_still_fails(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="logic-1",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#460@abc123",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=460,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/460",
+                head_sha="abc123",
+            )
+            bridge.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "queued", "queued")
+            bridge.store.reserve_or_retry_job(job, retry_limit=0)
+            original_run_job = bridge._run_job
+            bridge._run_job = lambda _job: (_ for _ in ()).throw(a2a_runner.DemoError("invalid review format"))
+            try:
+                with self.assertLogs(level="ERROR"):
+                    bridge.process_job(job)
+            finally:
+                bridge._run_job = original_run_job
+
+            self.assertEqual(bridge.store.job_status_for_key(job.dedupe_key), "failed")
+            deliveries = bridge.store.recent_deliveries(limit=1)
+
+        self.assertEqual(deliveries[0]["status"], "failed")
+
     def test_codex_model_args_include_model_and_reasoning_effort(self):
         self.assertEqual(
             a2a_runner.codex_model_args("gpt-5.5", "mid"),

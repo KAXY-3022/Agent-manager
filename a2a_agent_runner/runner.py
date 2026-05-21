@@ -86,6 +86,26 @@ class DuplicateCommentSkipped(DemoError):
     pass
 
 
+TRANSIENT_JOB_ERROR_PATTERNS = (
+    "command timed out",
+    "connect: operation timed out",
+    "connection timed out",
+    "read: connection reset by peer",
+    "connection reset by peer",
+    "no such host",
+    "network is unreachable",
+    "temporary failure",
+    "tls handshake timeout",
+    "i/o timeout",
+)
+TRANSIENT_JOB_RETRY_LIMIT = 3
+
+
+def is_transient_job_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return any(pattern in text for pattern in TRANSIENT_JOB_ERROR_PATTERNS)
+
+
 class ReusableThreadingHTTPServer(http.server.ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = True
@@ -3464,6 +3484,28 @@ class WebhookStateStore:
                 (status, int(time.time()), key),
             )
 
+    def retry_job_after_transient_error(self, key: str, retry_limit: int) -> bool:
+        now = int(time.time())
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT retry_count FROM jobs WHERE dedupe_key = ?",
+                (key,),
+            ).fetchone()
+            if not row:
+                return False
+            retry_count = int(row[0] or 0)
+            if retry_count >= retry_limit:
+                return False
+            conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'queued', retry_count = retry_count + 1, updated_at = ?
+                WHERE dedupe_key = ?
+                """,
+                (now, key),
+            )
+        return True
+
     def job_status_for_key(self, key: str) -> str:
         with self.connect() as conn:
             row = conn.execute(
@@ -4139,6 +4181,15 @@ class WebhookBridge:
                 self.store.update_job(job.dedupe_key, "done")
                 self.store.update_delivery(job.delivery_id, "ignored", str(exc)[:500])
             except Exception as exc:
+                if is_transient_job_error(exc) and self.store.retry_job_after_transient_error(
+                    job.dedupe_key,
+                    TRANSIENT_JOB_RETRY_LIMIT,
+                ):
+                    summary = f"transient failure; queued retry: {str(exc)[:420]}"
+                    logging.warning("retrying transient job kind=%s key=%s error=%s", job.kind, job.dedupe_key, exc)
+                    self.store.update_delivery(job.delivery_id, "queued", summary)
+                    self.jobs.put(job)
+                    return
                 logging.exception("failed job kind=%s key=%s", job.kind, job.dedupe_key)
                 self.store.update_job(job.dedupe_key, "failed")
                 self.store.update_delivery(job.delivery_id, "failed", str(exc)[:500])
