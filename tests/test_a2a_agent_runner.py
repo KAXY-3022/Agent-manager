@@ -1,4 +1,5 @@
 import json
+import logging
 import threading
 import tempfile
 import unittest
@@ -51,6 +52,32 @@ class RunnerStateTests(unittest.TestCase):
             username_aliases=(),
             own_branch_prefixes=("codex/",),
         )
+
+    def test_setup_webhook_logging_replaces_existing_root_handlers(self):
+        root_logger = logging.getLogger()
+        original_handlers = list(root_logger.handlers)
+        original_level = root_logger.level
+        try:
+            for handler in list(root_logger.handlers):
+                root_logger.removeHandler(handler)
+            root_logger.addHandler(logging.NullHandler())
+            root_logger.setLevel(logging.WARNING)
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                config = self.make_config(tmpdir)
+                a2a_runner.setup_webhook_logging(config)
+                logging.info("runner-log-marker")
+                for handler in logging.getLogger().handlers:
+                    handler.flush()
+
+                self.assertIn("runner-log-marker", config.log_file.read_text())
+        finally:
+            for handler in list(root_logger.handlers):
+                root_logger.removeHandler(handler)
+                handler.close()
+            for handler in original_handlers:
+                root_logger.addHandler(handler)
+            root_logger.setLevel(original_level)
 
     def test_branch_prefix_does_not_override_explicit_other_author(self):
         with tempfile.TemporaryDirectory() as tmpdir:

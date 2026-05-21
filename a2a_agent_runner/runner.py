@@ -2473,6 +2473,7 @@ def setup_webhook_logging(config: WebhookConfig) -> None:
             logging.FileHandler(str(config.log_file), encoding="utf-8"),
             logging.StreamHandler(sys.stderr),
         ],
+        force=True,
     )
 
 
