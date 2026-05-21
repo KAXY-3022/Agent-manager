@@ -1,6 +1,6 @@
-# MORAS Agent Runner Demo
+# A2A Agent Runner
 
-Personal local demo for basic Gitea issue and PR review automation, kept outside the MORAS product workspace.
+Local demo for basic Gitea issue and PR review automation, kept outside product workspaces.
 
 ## Scope
 
@@ -12,17 +12,17 @@ Gitea issue/PR or signed webhook -> local task package -> optional read-only age
 
 The default package-only mode does not invoke an agent, modify code, create a branch, create a PR, or post back to Gitea. PR reviews that run a real agent post the suggested PR comment automatically unless `--no-post` is passed.
 
-Default locations:
+Default locations are intentionally local and configurable:
 
 ```text
-/Users/changyenyu/MORAS-agent-runner/    # runner home, task packages, logs later
-/Users/changyenyu/MORAS/                 # read-only MORAS workspace by default
+/path/to/a2a-agent-runner/    # runner home, task packages, logs
+/path/to/workspace/           # read-only source workspace by default
 ```
 
 Override with:
 
 ```bash
-MORAS_AGENT_RUNNER_HOME=/path/to/runner MORAS_WORKSPACE=/path/to/MORAS bin/moras-issue-demo list
+A2A_AGENT_RUNNER_HOME=/path/to/runner A2A_WORKSPACE=/path/to/workspace bin/moras-issue-demo list
 ```
 
 Runtime binary overrides:
@@ -170,7 +170,7 @@ The webhook process also starts a polling monitor by default. This keeps a local
 
 ```text
 MORAS_GITEA_MONITOR_SECONDS=10
-MORAS_GITEA_MONITOR_REPOS=K2Lab/moras-brain
+MORAS_GITEA_MONITOR_REPOS=owner/repo
 MORAS_GITEA_MONITOR_LIMIT=50
 MORAS_GITEA_MONITOR_PR_REVIEWS=true
 ```
