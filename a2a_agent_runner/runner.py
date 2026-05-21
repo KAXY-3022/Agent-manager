@@ -2894,6 +2894,10 @@ def enrich_issue_snapshot_with_tracked_prs(
 
 
 def snapshot_review_requested_from_user(snapshot: dict[str, Any], expected_usernames: tuple[str, ...]) -> bool:
+    if str(snapshot.get("item_type") or "") == "pull_request" and user_matches_any(
+        snapshot.get("assignees"), expected_usernames
+    ):
+        return True
     reviewers = snapshot.get("requested_reviewers")
     if user_matches_any(reviewers, expected_usernames):
         return True
@@ -2910,6 +2914,11 @@ def snapshot_review_requested_from_user(snapshot: dict[str, Any], expected_usern
 
 
 def snapshot_has_review_request(snapshot: dict[str, Any]) -> bool:
+    assignees = snapshot.get("assignees")
+    if str(snapshot.get("item_type") or "") == "pull_request" and (
+        (isinstance(assignees, list) and bool(assignees)) or (not isinstance(assignees, list) and bool(assignees))
+    ):
+        return True
     reviewers = snapshot.get("requested_reviewers")
     if isinstance(reviewers, list) and reviewers:
         return True

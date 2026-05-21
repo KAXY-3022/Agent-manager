@@ -1303,8 +1303,10 @@
       return "";
     };
     const hasReviewRequest = (item) => {
+      const assignees = item.assignees || (item.snapshot && item.snapshot.assignees) || [];
+      const hasAssignees = Array.isArray(assignees) ? assignees.length > 0 : Boolean(assignees);
       const reviews = (item.snapshot && item.snapshot.reviews) || [];
-      return item.has_review_request || reviews.some(r => String(r.state || "").toUpperCase() === "REQUEST_REVIEW");
+      return item.has_review_request || hasAssignees || reviews.some(r => String(r.state || "").toUpperCase() === "REQUEST_REVIEW");
     };
     const itemKey = (item) => `${item.repo}:${item.item_type}:${item.number}`;
     const repoShortName = (repo) => String(repo || "").split("/").filter(Boolean).pop() || repo || "-";
@@ -1337,11 +1339,7 @@
         if (!isWipTitle(item) && hasReviewRequest(item)) return "under_review";
         return "wip";
       }
-      if (rel.review_requested_from_me) return "reviewing";
-      if (rel.assigned_to_me) {
-        if (!isWipTitle(item) && hasReviewRequest(item)) return "under_review";
-        return "wip";
-      }
+      if (rel.review_requested_from_me || rel.assigned_to_me) return "reviewing";
       if (rel.participating) return "reviewing";
       return "wip";
     };

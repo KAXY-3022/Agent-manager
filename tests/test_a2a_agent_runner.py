@@ -143,6 +143,34 @@ class RunnerStateTests(unittest.TestCase):
         self.assertTrue(items[0]["relationships"]["created_by_me"])
         self.assertTrue(items[0]["relationships"]["related_to_me"])
 
+    def test_assigned_pr_counts_as_review_requested_relationship(self):
+        pr_relationships = a2a_runner.snapshot_relationships(
+            {
+                "item_type": "pull_request",
+                "author": "Other.User",
+                "assignees": ["Dev.User"],
+                "requested_reviewers": [],
+                "reviews": [],
+            },
+            "Dev.User",
+        )
+        issue_relationships = a2a_runner.snapshot_relationships(
+            {
+                "item_type": "issue",
+                "author": "Other.User",
+                "assignees": ["Dev.User"],
+                "requested_reviewers": [],
+                "reviews": [],
+            },
+            "Dev.User",
+        )
+
+        self.assertTrue(pr_relationships["assigned_to_me"])
+        self.assertTrue(pr_relationships["review_requested_from_me"])
+        self.assertIn("review", a2a_runner.relationship_labels(pr_relationships))
+        self.assertTrue(issue_relationships["assigned_to_me"])
+        self.assertFalse(issue_relationships["review_requested_from_me"])
+
     def test_successful_current_head_review_clears_failed_job_badge(self):
         original_iter_records = a2a_runner.iter_records
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -739,6 +767,58 @@ mid-human-review
             self.assertEqual(job.kind, "pr_review")
             self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#450@abc123")
 
+    def test_active_pr_poll_queues_review_when_pr_assigned_to_user(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("ExampleOrg/project-core",),
+                    "monitor_limit": 10,
+                    "monitor_pr_reviews": True,
+                }
+            )
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 451,
+                    "title": "Assigned review",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/451",
+                    "state": "open",
+                    "author": "Other.User",
+                    "head": "feature/assigned-review",
+                    "head_sha": "abc123",
+                    "assignees": [],
+                    "requested_reviewers": [],
+                    "reviews": [],
+                    "review_comments": [],
+                    "comments": [],
+                }
+            )
+            pr = {
+                "index": 451,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Assigned review",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/451",
+                "head": "feature/assigned-review",
+                "headSha": "abc123",
+                "assignees": [{"login": "Dev.User"}],
+                "requested_reviewers": [],
+                "reviews": [],
+                "comments": [],
+            }
+
+            with mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
+                events = bridge.active_pr_once()
+
+            self.assertIn("queued requested review", "\n".join(events))
+            job = bridge.jobs.get_nowait()
+            self.assertEqual(job.kind, "pr_review")
+            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#451@abc123")
+
     def test_active_pr_poll_queues_rereview_when_requested_head_changes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
@@ -1168,6 +1248,17 @@ Still valid and should be assigned.
         self.assertNotIn("workCardDetail(item)", work_card)
         self.assertNotIn("cardLinks(item", work_card)
         self.assertNotIn("work-card-footer", work_card)
+
+    def test_kanban_treats_assigned_prs_as_review_requested(self):
+        ui = a2a_runner.load_ui_html()
+        marker = "const boardColumnFor ="
+        start = ui.index(marker)
+        end = ui.index("const cardRelationClass =", start)
+        board_logic = ui[start:end]
+
+        self.assertIn("assignees.length > 0", ui)
+        self.assertIn("rel.review_requested_from_me || rel.assigned_to_me", board_logic)
+        self.assertNotIn('if (rel.assigned_to_me) {\n        if (!isWipTitle(item)', board_logic)
 
     def test_duplicate_comment_reason_detects_existing_pr_comment(self):
         with tempfile.TemporaryDirectory() as tmpdir:
