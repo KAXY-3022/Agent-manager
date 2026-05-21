@@ -82,6 +82,10 @@ class DemoError(RuntimeError):
     pass
 
 
+class DuplicateCommentSkipped(DemoError):
+    pass
+
+
 class ReusableThreadingHTTPServer(http.server.ThreadingHTTPServer):
     allow_reuse_address = True
     daemon_threads = True
@@ -320,6 +324,18 @@ def fetch_pr(pull: str, repo: str, timeout: int = 90) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise DemoError(f"unexpected tea JSON shape for PR #{pull}")
     return data
+
+
+def pr_comment_bodies(pull: str, repo: str, timeout: int = 90) -> list[str]:
+    pr_data = fetch_pr(pull, repo, timeout=timeout)
+    comments = pr_data.get("comments") or []
+    if not isinstance(comments, list):
+        return []
+    return [
+        str(comment.get("body") or "")
+        for comment in comments
+        if isinstance(comment, dict) and comment.get("body")
+    ]
 
 
 def list_open_prs(repo: str, limit: int, timeout: int = 30) -> list[dict[str, Any]]:
@@ -2027,6 +2043,73 @@ def build_comment_body(record: dict[str, Any], review: str, *, suggested_only: b
     return comment_body
 
 
+def normalize_comment_for_dedupe(value: str) -> str:
+    return " ".join(str(value or "").split())
+
+
+def local_posted_comment_bodies(
+    current_task_dir: Path,
+    *,
+    repo: str,
+    target: str,
+    item_type: str,
+) -> list[str]:
+    bodies: list[str] = []
+    current_task_dir = current_task_dir.resolve()
+    for task_dir, record in iter_records():
+        if task_dir.resolve() == current_task_dir:
+            continue
+        if record.get("repo") != repo or record.get("item_type") != item_type:
+            continue
+        record_target = record.get("target_index") or record.get("issue") or record.get("pull")
+        if str(record_target) != str(target) or not record.get("posted"):
+            continue
+        review_path = task_dir / "review.md"
+        if not review_path.exists():
+            continue
+        try:
+            review = review_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        bodies.append(
+            build_comment_body(
+                record,
+                review,
+                suggested_only=True,
+                max_chars=12000,
+            )
+        )
+    return bodies
+
+
+def duplicate_comment_reason(
+    task_dir: Path,
+    *,
+    record: dict[str, Any],
+    repo: str,
+    target: str,
+    comment_body: str,
+    live_comment_bodies: list[str] | None = None,
+) -> str:
+    normalized = normalize_comment_for_dedupe(comment_body)
+    if not normalized:
+        return "empty comment body"
+
+    item_type = str(record.get("item_type") or "")
+    for body in local_posted_comment_bodies(task_dir, repo=repo, target=target, item_type=item_type):
+        if normalize_comment_for_dedupe(body) == normalized:
+            return "duplicate of a local posted task package"
+
+    if item_type != "pull_request":
+        return ""
+
+    bodies = live_comment_bodies if live_comment_bodies is not None else pr_comment_bodies(target, repo)
+    for body in bodies:
+        if normalize_comment_for_dedupe(body) == normalized:
+            return "duplicate of an existing PR comment"
+    return ""
+
+
 def post_review_comment(
     task_dir: Path,
     *,
@@ -2042,6 +2125,18 @@ def post_review_comment(
     )
     review = review_path.read_text(encoding="utf-8").strip()
     comment_body = build_comment_body(record, review, suggested_only=suggested_only, max_chars=max_chars)
+    duplicate_reason = duplicate_comment_reason(
+        task_dir,
+        record=record,
+        repo=repo,
+        target=target,
+        comment_body=comment_body,
+    )
+    if duplicate_reason:
+        record["post_skipped_reason"] = duplicate_reason
+        record["post_skipped_at"] = utc_now()
+        write_json(record_path, record)
+        raise DuplicateCommentSkipped(f"skipped duplicate comment for {repo}#{target}: {duplicate_reason}")
 
     result = run_command(["tea", "comment", "--repo", str(repo), target, comment_body], cwd=command_cwd(), timeout=90)
     if result.returncode != 0:
@@ -4001,6 +4096,10 @@ class WebhookBridge:
                 self.store.update_job(job.dedupe_key, "done")
                 self.store.update_delivery(job.delivery_id, "done", job.dedupe_key)
                 logging.info("completed job kind=%s key=%s", job.kind, job.dedupe_key)
+            except DuplicateCommentSkipped as exc:
+                logging.info("skipped duplicate job kind=%s key=%s reason=%s", job.kind, job.dedupe_key, exc)
+                self.store.update_job(job.dedupe_key, "done")
+                self.store.update_delivery(job.delivery_id, "ignored", str(exc)[:500])
             except Exception as exc:
                 logging.exception("failed job kind=%s key=%s", job.kind, job.dedupe_key)
                 self.store.update_job(job.dedupe_key, "failed")

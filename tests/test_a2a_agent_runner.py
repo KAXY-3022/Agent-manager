@@ -1115,6 +1115,56 @@ Still valid and should be assigned.
         self.assertIn("work-card-updated", work_card)
         self.assertIn("cardLinks(item, indexes)", work_card)
 
+    def test_duplicate_comment_reason_detects_existing_pr_comment(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "task"
+            task_dir.mkdir()
+            record = {"repo": "ExampleOrg/project-core", "item_type": "pull_request", "target_index": "460"}
+            comment = "_Automated PR review from A2A agent runner._\n\n## Automated PR Review\n\nSame body"
+
+            reason = a2a_runner.duplicate_comment_reason(
+                task_dir,
+                record=record,
+                repo="ExampleOrg/project-core",
+                target="460",
+                comment_body=comment,
+                live_comment_bodies=["  _Automated PR review from A2A agent runner._\n\n## Automated PR Review\nSame body  "],
+            )
+
+        self.assertEqual(reason, "duplicate of an existing PR comment")
+
+    def test_duplicate_comment_reason_detects_local_posted_task(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            current = Path(tmpdir) / "current"
+            previous = Path(tmpdir) / "previous"
+            current.mkdir()
+            previous.mkdir()
+            previous_record = {
+                "repo": "ExampleOrg/project-core",
+                "item_type": "pull_request",
+                "target_index": "460",
+                "posted": True,
+            }
+            review = "## Suggested PR Comment\n\n## Automated PR Review\n\nSame body"
+            write_json = a2a_runner.write_json
+            write_json(previous / "record.json", previous_record)
+            (previous / "review.md").write_text(review, encoding="utf-8")
+            a2a_runner.iter_records = lambda: [(previous, previous_record)]
+            try:
+                reason = a2a_runner.duplicate_comment_reason(
+                    current,
+                    record={"repo": "ExampleOrg/project-core", "item_type": "pull_request", "target_index": "460"},
+                    repo="ExampleOrg/project-core",
+                    target="460",
+                    comment_body=a2a_runner.build_comment_body(previous_record, review, suggested_only=True, max_chars=12000),
+                    live_comment_bodies=[],
+                )
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+        self.assertEqual(reason, "duplicate of a local posted task package")
+
     def test_board_issue_row_filters_to_related_issues(self):
         ui = a2a_runner.load_ui_html()
 
@@ -1320,6 +1370,37 @@ Still valid and should be assigned.
                 a2a_runner.command_pr_review = original_command_pr_review
 
         self.assertFalse(captured["post"])
+
+    def test_duplicate_comment_skip_marks_job_done_and_delivery_ignored(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = self.make_config(tmpdir)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="duplicate-1",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#460@abc123",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=460,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/460",
+                head_sha="abc123",
+            )
+            bridge.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "queued", "queued")
+            bridge.store.reserve_or_retry_job(job, retry_limit=0)
+            original_run_job = bridge._run_job
+            bridge._run_job = lambda _job: (_ for _ in ()).throw(a2a_runner.DuplicateCommentSkipped("duplicate"))
+            try:
+                bridge.process_job(job)
+            finally:
+                bridge._run_job = original_run_job
+
+            self.assertEqual(bridge.store.job_status_for_key(job.dedupe_key), "done")
+            deliveries = bridge.store.recent_deliveries(limit=1)
+
+        self.assertEqual(deliveries[0]["status"], "ignored")
+        self.assertEqual(deliveries[0]["summary"], "duplicate")
 
     def test_address_in_use_message_explains_duplicate_runner(self):
         message = a2a_runner.address_in_use_message("webhook listener", "127.0.0.1", 48731)
