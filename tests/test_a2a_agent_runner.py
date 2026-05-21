@@ -1127,7 +1127,7 @@ Still valid and should be assigned.
 
         self.assertNotIn("badge(marker(item.item_type))", card_badges)
         self.assertNotIn("reviewBadge(item)", card_badges)
-        self.assertIn("attentionBadge(item)", card_badges)
+        self.assertNotIn("attentionBadge(item)", card_badges)
 
     def test_pr_cards_render_compact_context_details(self):
         ui = a2a_runner.load_ui_html()

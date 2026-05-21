@@ -17,6 +17,7 @@
       --line-strong: #c7cabc;
       --accent: #2563eb;
       --accent-soft: #dbeafe;
+      --focus: #2563eb;
       --ok: #15803d;
       --warn: #a16207;
       --bad: #b91c1c;
@@ -30,7 +31,8 @@
       --rel-participating-soft: #f3e8ff;
       --rel-linked: #64748b;
       --rel-linked-soft: #f1f5f9;
-      --shadow: 0 1px 2px rgba(32, 33, 31, 0.06);
+      --shadow: 0 1px 2px rgba(32, 33, 31, 0.06), 0 12px 26px rgba(32, 33, 31, 0.04);
+      --shadow-tight: 0 1px 2px rgba(32, 33, 31, 0.08);
     }
     [data-theme="dark"] {
       color-scheme: dark;
@@ -44,6 +46,7 @@
       --line-strong: #444b55;
       --accent: #60a5fa;
       --accent-soft: #173658;
+      --focus: #93c5fd;
       --ok: #6ee7a8;
       --warn: #f8d76c;
       --bad: #fca5a5;
@@ -57,11 +60,14 @@
       --rel-participating-soft: #3b0764;
       --rel-linked: #94a3b8;
       --rel-linked-soft: #1e293b;
-      --shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 14px 30px rgba(0, 0, 0, 0.18);
+      --shadow-tight: 0 1px 2px rgba(0, 0, 0, 0.38);
     }
     * { box-sizing: border-box; }
     html {
+      height: 100%;
       min-height: 100%;
+      overflow: hidden;
     }
     body {
       margin: 0;
@@ -69,13 +75,21 @@
       color: var(--ink);
       font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       letter-spacing: 0;
+      height: 100vh;
       min-height: 100vh;
+      overflow: hidden;
     }
     button, input, select { font: inherit; }
+    button:focus-visible,
+    a:focus-visible {
+      outline: 2px solid var(--focus);
+      outline-offset: 2px;
+    }
     .shell {
       display: grid;
       grid-template-columns: 240px minmax(0, 1fr);
-      min-height: 100vh;
+      height: 100vh;
+      min-height: 0;
     }
     .shell.sidebar-collapsed {
       grid-template-columns: minmax(0, 1fr);
@@ -90,6 +104,7 @@
       position: sticky;
       top: 0;
       height: 100vh;
+      overflow-y: auto;
     }
     .rail-top {
       display: flex;
@@ -138,7 +153,9 @@
       padding: 8px 9px;
       text-align: left;
       cursor: pointer;
+      transition: background .16s ease, border-color .16s ease, transform .16s ease;
     }
+    .nav button:hover { background: color-mix(in srgb, var(--panel) 72%, transparent); }
     .nav button.active {
       background: var(--panel);
       border-color: var(--line);
@@ -150,22 +167,40 @@
       margin-top: 14px;
       color: var(--muted);
       display: grid;
-      gap: 8px;
-      overflow-wrap: anywhere;
+      gap: 10px;
     }
     .rail-block code {
+      display: block;
       color: var(--ink);
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 5px;
-      padding: 2px 4px;
+      padding: 3px 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+    .rail-status-row {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+    .rail-status-label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
     }
     main {
       padding: 18px 22px 28px;
       min-width: 0;
-      min-height: 100vh;
+      height: 100vh;
+      min-height: 0;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
     .topbar {
       display: flex;
@@ -198,6 +233,7 @@
       justify-content: flex-end;
       gap: 8px;
       flex-wrap: wrap;
+      min-width: 0;
     }
     .sidebar-reveal.hidden {
       display: none;
@@ -210,6 +246,11 @@
       padding: 7px 10px;
       cursor: pointer;
       box-shadow: var(--shadow);
+      transition: background .16s ease, border-color .16s ease, transform .16s ease, box-shadow .16s ease;
+    }
+    .btn:hover {
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
+      transform: translateY(-1px);
     }
     .btn.primary {
       border-color: #1d4ed8;
@@ -294,6 +335,11 @@
     }
     .view {
       min-width: 0;
+      min-height: 0;
+    }
+    .view:not(#board):not(.hidden) {
+      flex: 1 1 auto;
+      overflow: auto;
     }
     #board {
       --board-card-height: 92px;
@@ -487,18 +533,39 @@
       max-height: 100%;
       display: flex;
       flex-direction: column;
+      --lane-color: var(--rel-linked);
+      --lane-soft: var(--rel-linked-soft);
     }
+    .kanban-column.lane-wip { --lane-color: var(--rel-linked); --lane-soft: var(--rel-linked-soft); }
+    .kanban-column.lane-under_review { --lane-color: var(--rel-created); --lane-soft: var(--rel-created-soft); }
+    .kanban-column.lane-reviewing { --lane-color: var(--rel-review); --lane-soft: var(--rel-review-soft); }
+    .kanban-column.lane-reviewed { --lane-color: var(--ok); --lane-soft: color-mix(in srgb, var(--ok) 18%, var(--panel)); }
     .kanban-head {
       display: flex;
       justify-content: space-between;
       align-items: center;
       gap: 8px;
-      padding: 9px 10px;
+      padding: 8px 9px 8px 10px;
       border-bottom: 1px solid var(--line);
-      background: var(--panel-alt);
+      border-top: 3px solid var(--lane-color);
+      background: color-mix(in srgb, var(--lane-soft) 42%, var(--panel-alt));
       font-size: 12px;
       font-weight: 650;
       flex: 0 0 auto;
+    }
+    .kanban-head-title {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .kanban-count {
+      min-width: 24px;
+      justify-content: center;
+      color: var(--lane-color);
+      border-color: color-mix(in srgb, var(--lane-color) 52%, var(--line));
+      background: color-mix(in srgb, var(--lane-color) 11%, var(--panel));
+      font-variant-numeric: tabular-nums;
     }
     .kanban-body {
       display: grid;
@@ -516,7 +583,7 @@
       bottom: 0;
       z-index: 8;
       flex: 0 0 auto;
-      background: var(--panel);
+      background: color-mix(in srgb, var(--panel) 90%, var(--rail));
       border: 1px solid var(--line);
       border-radius: 8px;
       box-shadow: var(--shadow);
@@ -529,7 +596,7 @@
       gap: 8px;
       padding: 6px 8px;
       border-bottom: 1px solid var(--line);
-      background: var(--panel-alt);
+      background: color-mix(in srgb, var(--rail) 58%, var(--panel));
       font-size: 12px;
       font-weight: 650;
     }
@@ -623,30 +690,58 @@
       display: none;
     }
     .work-card {
-      border: 1px solid var(--line);
-      border-left: 6px solid var(--rel-linked);
+      --rel-color: var(--rel-linked);
+      --rel-soft: var(--rel-linked-soft);
+      border: 1px solid color-mix(in srgb, var(--rel-color) 24%, var(--line));
+      border-left: 5px solid var(--rel-color);
       border-radius: 8px;
-      background: color-mix(in srgb, var(--rel-linked-soft) 24%, var(--panel));
+      background:
+        linear-gradient(135deg, color-mix(in srgb, var(--rel-soft) 62%, var(--panel)) 0%, var(--panel) 72%),
+        var(--panel);
       padding: var(--board-card-padding);
-      display: grid;
+      display: flex;
+      flex-direction: column;
       gap: calc(var(--board-card-gap) - 1px);
       min-height: 0;
       overflow: hidden;
       font-size: var(--board-card-font-size);
       position: relative;
-      grid-template-rows: auto minmax(0, 1fr) auto auto;
+      box-shadow: var(--shadow-tight);
+      transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
     }
-    .work-card.rel-created { border-left-color: var(--rel-created); background: color-mix(in srgb, var(--rel-created-soft) 34%, var(--panel)); }
-    .work-card.rel-assigned { border-left-color: var(--rel-assigned); background: color-mix(in srgb, var(--rel-assigned-soft) 34%, var(--panel)); }
-    .work-card.rel-review { border-left-color: var(--rel-review); background: color-mix(in srgb, var(--rel-review-soft) 34%, var(--panel)); }
-    .work-card.rel-participating { border-left-color: var(--rel-participating); background: color-mix(in srgb, var(--rel-participating-soft) 34%, var(--panel)); }
+    .work-card::before {
+      content: "";
+      position: absolute;
+      inset: 0 0 auto 0;
+      height: 2px;
+      background: color-mix(in srgb, var(--rel-color) 72%, transparent);
+      opacity: .8;
+    }
+    .work-card:hover {
+      border-color: color-mix(in srgb, var(--rel-color) 48%, var(--line));
+      box-shadow: var(--shadow);
+      transform: translateY(-1px);
+    }
+    .work-card.rel-created { --rel-color: var(--rel-created); --rel-soft: var(--rel-created-soft); }
+    .work-card.rel-assigned { --rel-color: var(--rel-assigned); --rel-soft: var(--rel-assigned-soft); }
+    .work-card.rel-review { --rel-color: var(--rel-review); --rel-soft: var(--rel-review-soft); }
+    .work-card.rel-participating { --rel-color: var(--rel-participating); --rel-soft: var(--rel-participating-soft); }
     .work-card-title {
+      flex: 0 0 auto;
       font-weight: 620;
       line-height: 1.3;
       display: -webkit-box;
       -webkit-line-clamp: var(--board-card-title-lines);
       -webkit-box-orient: vertical;
       overflow: hidden;
+    }
+    .work-card-title a {
+      color: var(--ink);
+      text-decoration: none;
+    }
+    .work-card-title a:hover {
+      color: var(--accent);
+      text-decoration: underline;
     }
     .work-card-header {
       display: flex;
@@ -669,6 +764,12 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      border: 1px solid color-mix(in srgb, var(--rel-color, var(--accent)) 28%, var(--line));
+      border-radius: 5px;
+      padding: 1px 5px;
+      background: color-mix(in srgb, var(--panel) 78%, var(--rel-soft, var(--accent-soft)));
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 11px;
     }
     .work-card-meta .badge {
       flex: 0 0 auto;
@@ -676,6 +777,7 @@
     }
     .work-card-detail {
       color: var(--muted);
+      flex: 0 0 auto;
       display: flex;
       align-items: center;
       gap: 4px;
@@ -707,11 +809,13 @@
       opacity: .58;
     }
     .work-card-footer {
+      flex: 0 0 auto;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 6px;
       min-width: 0;
+      margin-top: auto;
     }
     .work-card-links {
       color: var(--muted);
@@ -721,6 +825,26 @@
       gap: 5px;
       min-width: 0;
       overflow: hidden;
+    }
+    .work-card-token {
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      min-width: 0;
+      max-width: 100%;
+      border: 1px solid color-mix(in srgb, var(--line-strong) 70%, transparent);
+      border-radius: 5px;
+      padding: 1px 5px;
+      background: color-mix(in srgb, var(--panel) 72%, var(--panel-alt));
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .work-card-token a {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
     .work-card-updated {
       color: var(--muted);
@@ -741,7 +865,7 @@
       height: 18px;
       justify-content: center;
       background: var(--panel);
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadow-tight);
     }
     .work-card-job .job-text {
       display: none;
@@ -763,6 +887,17 @@
       padding: 18px;
       color: var(--muted);
     }
+    .kanban-empty {
+      display: grid;
+      place-items: center;
+      height: 100%;
+      min-height: 44px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 7px;
+      color: var(--muted);
+      background: color-mix(in srgb, var(--panel-alt) 76%, transparent);
+      font-size: 12px;
+    }
     .toast {
       position: fixed;
       right: 18px;
@@ -777,17 +912,70 @@
       overflow-wrap: anywhere;
     }
     @media (max-width: 900px) {
+      html,
+      body {
+        height: auto;
+        min-height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+      }
       .shell { grid-template-columns: 1fr; }
       .rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
-      main { min-height: auto; }
-      #board { overflow: visible; }
+      main {
+        width: 100%;
+        max-width: 100vw;
+        height: auto;
+        min-height: auto;
+        overflow: visible;
+        padding: 16px;
+      }
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      .topbar-actions {
+        justify-content: flex-start;
+        width: 100%;
+      }
+      .toolbar,
+      .tabs {
+        max-width: 100%;
+        overflow-x: auto;
+      }
+      .view:not(#board):not(.hidden) { overflow: visible; }
+      #board {
+        max-width: 100%;
+        overflow: visible;
+      }
       .grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
       .logline { grid-template-columns: 1fr; }
-      .kanban { grid-template-columns: repeat(4, minmax(0, 1fr)); overflow-x: hidden; overflow-y: hidden; min-height: 220px; }
-      .kanban-column { min-width: 0; max-height: none; }
+      .kanban {
+        grid-template-columns: repeat(4, minmax(212px, 76vw));
+        overflow-x: auto;
+        overflow-y: hidden;
+        max-width: 100%;
+        min-height: 520px;
+        scroll-snap-type: x proximity;
+        padding-bottom: 2px;
+      }
+      .kanban-column {
+        min-width: 212px;
+        max-height: none;
+        scroll-snap-align: start;
+      }
       .kanban-body { overflow: hidden; }
       .issue-row { position: static; }
       .issue-row-body { max-height: 160px; overflow: hidden; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: .001ms !important;
+      }
     }
   </style>
 </head>
@@ -814,10 +1002,10 @@
         <button data-view="tasks">Task Packages</button>
       </div>
       <div class="rail-block">
-        <div>Runtime <code id="runtime">-</code></div>
-        <div>Monitor <code id="monitor">-</code></div>
-        <div>Webhook <code id="webhook-url">-</code></div>
-        <div>Ngrok <code id="ngrok-url">-</code></div>
+        <div class="rail-status-row"><span class="rail-status-label">Runtime</span><code id="runtime">-</code></div>
+        <div class="rail-status-row"><span class="rail-status-label">Monitor</span><code id="monitor">-</code></div>
+        <div class="rail-status-row"><span class="rail-status-label">Webhook</span><code id="webhook-url">-</code></div>
+        <div class="rail-status-row"><span class="rail-status-label">Ngrok</span><code id="ngrok-url">-</code></div>
       </div>
     </aside>
     <main>
@@ -1057,10 +1245,7 @@
       return reason ? `<span class="badge attention-badge" title="${esc(reason)}">Attention</span>` : "";
     };
     const compactStatusBadges = (item) => {
-      const parts = [];
-      const attention = attentionBadge(item);
-      if (attention) parts.push(attention);
-      return `<span class="compact-badges">${parts.join("")}</span>`;
+      return "";
     };
     const hasReviewRequest = (item) => {
       const reviews = (item.snapshot && item.snapshot.reviews) || [];
@@ -1177,8 +1362,10 @@
           const links = linkedIssues.map(number => indexes.byKey.get(`${item.repo}:issue:${number}`) || {item_type:"issue", number, url:`${item.url.replace(/\/pulls\/\d+$/, `/issues/${number}`)}`});
           parts.push(`Issue ${links.map(itemTinyLink).join(" ")}`);
         }
+        const headSha = String((item.snapshot && item.snapshot.head_sha) || item.review_status?.current_head_sha || "");
+        if (headSha) parts.push(`<span class="work-card-token" title="${esc(headSha)}">head ${esc(headSha.slice(0, 7))}</span>`);
       }
-      return parts.length ? `<div class="work-card-links">${parts.join("")}</div>` : "";
+      return parts.length ? `<div class="work-card-links">${parts.map(part => String(part).startsWith("<span") ? part : `<span class="work-card-token">${part}</span>`).join("")}</div>` : "";
     };
     const workCardDetail = (item) => {
       const snapshot = item.snapshot || {};
@@ -1256,10 +1443,19 @@
     async function loadStatus() {
       const data = await api("/api/status");
       state.userNames = [data.config.username, ...(data.config.username_aliases || [])].filter(Boolean);
-      $("runtime").textContent = data.config.runtime || "-";
-      $("monitor").textContent = `workers ${data.config.worker_count} · discovery ${data.config.discovery_poll_seconds}s · active PR ${data.config.active_pr_poll_seconds}s · ${(data.config.monitor_repos || []).join(",") || "-"}`;
-      $("webhook-url").textContent = data.config.webhook_url || "-";
-      $("ngrok-url").textContent = data.config.ngrok_public_url ? `${data.config.ngrok_public_url}/gitea` : "-";
+      const setStatusValue = (id, value, title = value) => {
+        const node = $(id);
+        if (!node) return;
+        node.textContent = value || "-";
+        node.title = title || value || "-";
+      };
+      const repos = data.config.monitor_repos || [];
+      const monitorSummary = `workers ${data.config.worker_count} · ${data.config.discovery_poll_seconds}s/${data.config.active_pr_poll_seconds}s · ${repos.length} repos`;
+      const monitorTitle = `workers ${data.config.worker_count} · discovery ${data.config.discovery_poll_seconds}s · active PR ${data.config.active_pr_poll_seconds}s · ${repos.join(",") || "-"}`;
+      setStatusValue("runtime", data.config.runtime || "-");
+      setStatusValue("monitor", monitorSummary, monitorTitle);
+      setStatusValue("webhook-url", data.config.webhook_url || "-");
+      setStatusValue("ngrok-url", data.config.ngrok_public_url ? `${data.config.ngrok_public_url}/gitea` : "-");
       $("metric-prs").textContent = data.counts.tracked_open.pull_request || 0;
       $("metric-issues").textContent = data.counts.tracked_open.issue || 0;
       $("metric-jobs").textContent = data.counts.jobs.done || 0;
@@ -1320,9 +1516,9 @@
       }
       $("kanban-board").innerHTML = boardColumns.map(col => {
         const items = groups[col.id] || [];
-        return `<section class="kanban-column">
-          <div class="kanban-head"><span>${esc(col.title)}</span><span class="badge">${items.length}</span></div>
-          <div class="kanban-body">${items.length ? items.map(item => workCard(item, indexes)).join("") : '<div class="empty">No items</div>'}</div>
+        return `<section class="kanban-column lane-${esc(col.id)}">
+          <div class="kanban-head"><span class="kanban-head-title">${esc(col.title)}</span><span class="badge kanban-count">${items.length}</span></div>
+          <div class="kanban-body">${items.length ? items.map(item => workCard(item, indexes)).join("") : '<div class="kanban-empty">No items</div>'}</div>
         </section>`;
       }).join("");
       $("kanban-issues-count").textContent = issueItems.length;
