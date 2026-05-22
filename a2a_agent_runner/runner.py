@@ -86,6 +86,12 @@ class DuplicateCommentSkipped(DemoError):
     pass
 
 
+class JobIncomplete(DemoError):
+    def __init__(self, status: str, summary: str):
+        super().__init__(summary)
+        self.status = status
+
+
 TRANSIENT_JOB_ERROR_PATTERNS = (
     "command timed out",
     "connect: operation timed out",
@@ -99,6 +105,8 @@ TRANSIENT_JOB_ERROR_PATTERNS = (
     "i/o timeout",
 )
 TRANSIENT_JOB_RETRY_LIMIT = 3
+MANUAL_PR_REVIEW_RETRY_LIMIT = 1
+LOW_CONFIDENCE_PR_REVIEW_REASON = "request-changes review used incomplete or unverified diff evidence"
 
 
 def is_transient_job_error(exc: BaseException) -> bool:
@@ -178,6 +186,34 @@ def is_comment_job(job: WebhookJob) -> bool:
     return job.event_type.startswith("pr_comment") or ":comment-" in job.dedupe_key
 
 
+def pr_review_head_from_dedupe_key(dedupe_key: str) -> str:
+    raw_key = str(dedupe_key or "").split(":", 1)[0]
+    if "@" not in raw_key:
+        return ""
+    return raw_key.rsplit("@", 1)[1].strip()
+
+
+def is_pr_head_review_job(job: WebhookJob) -> bool:
+    return bool(
+        job.kind == "pr_review"
+        and not is_comment_job(job)
+        and job.head_sha
+        and job.head_sha != "unknown"
+    )
+
+
+def can_supersede_active_job_with_pr_head(active_job: dict[str, Any], replacement_job: WebhookJob) -> bool:
+    if not is_pr_head_review_job(replacement_job):
+        return False
+    if str(active_job.get("kind") or "") != "pr_review":
+        return False
+    active_key = str(active_job.get("dedupe_key") or "")
+    if ":comment-" in active_key:
+        return False
+    active_head = pr_review_head_from_dedupe_key(active_key)
+    return bool(active_head and active_head != "unknown" and active_head != replacement_job.head_sha)
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
@@ -228,7 +264,62 @@ def run_command(
     cwd: Path,
     input_text: str | None = None,
     timeout: int | None = None,
+    cancel_event: threading.Event | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    if cancel_event is not None:
+        try:
+            process = subprocess.Popen(
+                args,
+                cwd=str(cwd),
+                stdin=subprocess.PIPE if input_text is not None else None,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                start_new_session=True,
+            )
+        except FileNotFoundError as exc:
+            raise DemoError(f"command not found: {args[0]}") from exc
+
+        deadline = time.monotonic() + timeout if timeout is not None else None
+        input_sent = False
+        while True:
+            if cancel_event.is_set():
+                try:
+                    os.killpg(process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                try:
+                    process.communicate(timeout=5)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.communicate()
+                raise DemoError(f"command cancelled because job was superseded: {' '.join(args)}")
+
+            wait_timeout = 0.2
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.communicate()
+                    raise DemoError(f"command timed out after {timeout}s: {' '.join(args)}")
+                wait_timeout = min(wait_timeout, remaining)
+
+            try:
+                stdout, stderr = process.communicate(
+                    input=input_text if input_text is not None and not input_sent else None,
+                    timeout=wait_timeout,
+                )
+                return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+            except subprocess.TimeoutExpired:
+                input_sent = True
+                continue
+
     try:
         return subprocess.run(
             args,
@@ -976,6 +1067,7 @@ def run_agent(
     target_label: str,
     model: str = "",
     reasoning_effort: str = "",
+    cancel_event: threading.Event | None = None,
 ) -> tuple[str, str, str]:
     resolved = choose_runtime(runtime)
     suggested_heading = f"Suggested {target_label} Comment"
@@ -999,7 +1091,13 @@ Prepared a local task package. No automated review was run.
             review = missing_runtime_review("claude", target_label)
             write_text(review_path, review)
             return "none", review, "unavailable"
-        result = run_command([claude_bin, "-p"], cwd=component, input_text=prompt, timeout=timeout)
+        result = run_command(
+            [claude_bin, "-p"],
+            cwd=component,
+            input_text=prompt,
+            timeout=timeout,
+            cancel_event=cancel_event,
+        )
         review = (result.stdout or "").strip()
         status = "succeeded"
         if result.returncode != 0:
@@ -1034,6 +1132,7 @@ Prepared a local task package. No automated review was run.
             cwd=component,
             input_text=prompt,
             timeout=timeout,
+            cancel_event=cancel_event,
         )
         if result.returncode != 0:
             stderr = (result.stderr or "").strip()
@@ -1361,6 +1460,7 @@ def command_review(args: argparse.Namespace) -> int:
         target_label="Issue",
         model=getattr(args, "model", ""),
         reasoning_effort=getattr(args, "reasoning_effort", ""),
+        cancel_event=getattr(args, "cancel_event", None),
     )
     write_text(task_dir / "verification-plan.md", render_verification_plan(review, runtime_used))
     gate_passed, gate_reasons, gate_metadata = issue_strict_easy_gate(review, issue_data)
@@ -1477,6 +1577,7 @@ def command_stale_issue_scan(args: argparse.Namespace) -> int:
         target_label="Issue",
         model=getattr(args, "model", ""),
         reasoning_effort=getattr(args, "reasoning_effort", ""),
+        cancel_event=getattr(args, "cancel_event", None),
     )
     decision = extract_stale_issue_decision(review)
     assignee = extract_candidate_assignment(review, tuple(getattr(args, "candidates", None) or ()))
@@ -1586,6 +1687,7 @@ def command_pr_review(args: argparse.Namespace) -> int:
         target_label="PR",
         model=getattr(args, "model", ""),
         reasoning_effort=getattr(args, "reasoning_effort", ""),
+        cancel_event=getattr(args, "cancel_event", None),
     )
     write_text(task_dir / "verification-plan.md", render_verification_plan(review, runtime_used))
 
@@ -1669,6 +1771,25 @@ def iter_records() -> list[tuple[Path, dict[str, Any]]]:
             records.append((record_path.parent, record))
     records.sort(key=lambda item: str(item[1].get("created_at") or ""), reverse=True)
     return records
+
+
+def review_decision_for_task(task_dir: Path, record: dict[str, Any]) -> str:
+    stored = str(record.get("review_decision") or "").strip().lower()
+    if stored in {"approved", "request_changes", "comment"}:
+        return stored
+
+    review_path = task_dir / "review.md"
+    try:
+        review = review_path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+    verdict = normalize_verdict(extract_section(review, "Verdict") or format_pr_comment(review))
+    if verdict == "Approve":
+        return "approved"
+    if verdict == "Request Changes":
+        return "request_changes"
+    return "comment"
 
 
 def issue_triage_status_for_item(repo: str, item_type: str, number: int) -> dict[str, Any]:
@@ -1839,6 +1960,8 @@ def review_status_for_item(repo: str, item_type: str, number: int, current_head_
     reviewed_head = str(record.get("head_sha") or "")
     has_current_review = bool(current_reviewed) if current_head_sha else reviewed
     stale = bool(reviewed and current_head_sha and not has_current_review)
+    review_decision = review_decision_for_task(task_dir, record) if reviewed else ""
+    review_decision_label = "approved" if review_decision == "approved" else ("reviewed" if reviewed else "")
 
     if stale:
         state = "stale"
@@ -1869,10 +1992,13 @@ def review_status_for_item(repo: str, item_type: str, number: int, current_head_
         "runtime_status": record.get("runtime_status"),
         "reviewed_head_sha": reviewed_head,
         "current_head_sha": current_head_sha,
+        "review_decision": review_decision,
+        "review_decision_label": review_decision_label,
         "task_id": record.get("task_id") or task_dir.name,
         "task_dir": str(task_dir),
         "latest_runtime_status": latest_record.get("runtime_status"),
         "latest_runtime_used": latest_record.get("runtime_used"),
+        "latest_post_skipped_reason": latest_record.get("post_skipped_reason") or "",
         "latest_head_sha": str(latest_record.get("head_sha") or ""),
         "latest_task_id": latest_record.get("task_id") or latest_task_dir.name,
         "latest_task_dir": str(latest_task_dir),
@@ -1884,11 +2010,109 @@ def review_status_for_item(repo: str, item_type: str, number: int, current_head_
     }
 
 
-def pr_review_current_head_needs_retry(repo: str, number: int, head_sha: str) -> bool:
+def pr_review_current_head_low_confidence_needs_retry(repo: str, number: int, head_sha: str) -> bool:
     if not head_sha or head_sha == "unknown":
         return False
     status = review_status_for_item(repo, "pull_request", number, head_sha)
-    return bool(status.get("current_head_failed") and not status.get("reviewed"))
+    return bool(
+        not status.get("reviewed")
+        and str(status.get("latest_head_sha") or "") == head_sha
+        and status.get("latest_runtime_status") == "needs_human_review"
+        and status.get("latest_post_skipped_reason") == LOW_CONFIDENCE_PR_REVIEW_REASON
+    )
+
+
+def latest_pr_review_task_record(repo: str, number: int, head_sha: str = "") -> tuple[Path | None, dict[str, Any]]:
+    for task_dir, record in iter_records():
+        target = record.get("target_index") or record.get("pull")
+        if record.get("repo") != repo or record.get("item_type") != "pull_request" or str(target) != str(number):
+            continue
+        if head_sha and str(record.get("head_sha") or "") != str(head_sha):
+            continue
+        return task_dir, record
+    return None, {}
+
+
+def job_retry_available(job_status: dict[str, Any], retry_limit: int) -> bool:
+    try:
+        retry_count = int(job_status.get("retry_count") or 0)
+    except (TypeError, ValueError):
+        retry_count = 0
+    return retry_count < retry_limit
+
+
+def pr_review_manual_action_for_item(
+    repo: str,
+    number: int,
+    snapshot: dict[str, Any],
+    relationships: dict[str, bool],
+    review_status: dict[str, Any],
+    job_status: dict[str, Any],
+) -> dict[str, Any]:
+    if not (relationships.get("review_requested_from_me") or relationships.get("assigned_to_me")):
+        return {"available": False, "reason": "review is not requested from you"}
+    if relationships.get("created_by_me"):
+        return {"available": False, "reason": "PR is authored by you"}
+    head_sha = str(snapshot.get("head_sha") or review_status.get("current_head_sha") or "")
+    if not head_sha or head_sha == "unknown":
+        return {"available": False, "reason": "missing PR head SHA"}
+    status = str(job_status.get("status") or "").lower()
+    if status in {"queued", "running"}:
+        return {
+            "available": False,
+            "reason": f"review job already {status}",
+            "head_sha": head_sha,
+            "job_status": status,
+        }
+    if pr_review_current_head_low_confidence_needs_retry(repo, number, head_sha):
+        if not job_retry_available(job_status, MANUAL_PR_REVIEW_RETRY_LIMIT):
+            return {
+                "available": False,
+                "reason": "manual retry limit reached",
+                "head_sha": head_sha,
+                "job_status": status,
+            }
+        return {
+            "available": True,
+            "reason": "low-confidence review can be retried",
+            "head_sha": head_sha,
+            "dedupe_key": f"{repo}#{number}@{head_sha}",
+            "retry": True,
+        }
+    if status == "needs_human_review":
+        return {
+            "available": False,
+            "reason": "review needs human attention",
+            "head_sha": head_sha,
+            "job_status": status,
+        }
+    if review_status.get("reviewed") and not review_status.get("stale") and not review_status.get("current_head_failed"):
+        return {
+            "available": False,
+            "reason": "current head already reviewed",
+            "head_sha": head_sha,
+        }
+    if status == "failed":
+        if not job_retry_available(job_status, MANUAL_PR_REVIEW_RETRY_LIMIT):
+            return {
+                "available": False,
+                "reason": "manual retry limit reached",
+                "head_sha": head_sha,
+                "job_status": status,
+            }
+        return {
+            "available": True,
+            "reason": "failed review can be retried",
+            "head_sha": head_sha,
+            "dedupe_key": f"{repo}#{number}@{head_sha}",
+            "retry": True,
+        }
+    return {
+        "available": True,
+        "reason": "review requested",
+        "head_sha": head_sha,
+        "dedupe_key": f"{repo}#{number}@{head_sha}",
+    }
 
 
 def job_status_visible_for_item(
@@ -1907,6 +2131,8 @@ def job_status_visible_for_item(
         return False
     if review_status.get("reviewed") and not review_status.get("stale"):
         return False
+    if status in {"needs_human_review", "stale"}:
+        return True
     if status == "failed" and review_status.get("reviewed") and not review_status.get("current_head_failed"):
         return False
     return True
@@ -2022,7 +2248,7 @@ def pr_review_low_confidence_reason(review: str) -> str:
         "remains unreviewed",
     )
     if any(pattern in text for pattern in patterns):
-        return "request-changes review used incomplete or unverified diff evidence"
+        return LOW_CONFIDENCE_PR_REVIEW_REASON
     return ""
 
 
@@ -2061,6 +2287,81 @@ def build_comment_body(record: dict[str, Any], review: str, *, suggested_only: b
             + "\n\n_Comment truncated by local runner. See local task package for full output._"
         )
     return comment_body
+
+
+def suggested_comment_heading(record: dict[str, Any]) -> str:
+    return "## Suggested PR Comment" if record.get("item_type") == "pull_request" else "## Suggested Issue Comment"
+
+
+def replace_suggested_comment_section(review: str, record: dict[str, Any], suggested_comment: str) -> str:
+    heading = suggested_comment_heading(record)
+    comment = str(suggested_comment or "").strip()
+    for marker in ("## Suggested Issue Comment", "## Suggested PR Comment"):
+        if marker not in review:
+            continue
+        prefix, after = review.split(marker, 1)
+        next_heading = re.search(r"\n##\s+", after)
+        suffix = after[next_heading.start() :] if next_heading else ""
+        return f"{prefix.rstrip()}\n\n{marker}\n\n{comment}{suffix.rstrip()}\n"
+    return f"{review.rstrip()}\n\n{heading}\n\n{comment}\n"
+
+
+def ensure_task_under_root(task_dir: Path) -> Path:
+    root = TASK_ROOT.resolve()
+    resolved = task_dir.resolve()
+    try:
+        resolved.relative_to(root)
+    except ValueError as exc:
+        raise DemoError(f"task package is outside runner task root: {resolved}") from exc
+    return resolved
+
+
+def resolve_task_for_api(task: str, repo: str | None = None, item_type: str | None = None) -> Path:
+    if not str(task or "").strip():
+        raise DemoError("task is required")
+    return ensure_task_under_root(resolve_task(str(task), repo, item_type))
+
+
+def task_review_payload(
+    task_dir: Path,
+    *,
+    review_override: str | None = None,
+    max_chars: int = 12000,
+) -> dict[str, Any]:
+    record_path, review_path, record, repo, target = read_post_target(task_dir)
+    review = review_override if review_override is not None else review_path.read_text(encoding="utf-8").strip()
+    suggested = format_pr_comment(review) if record.get("item_type") == "pull_request" else extract_suggested_comment(review)
+    comment_body = build_comment_body(record, review, suggested_only=True, max_chars=max_chars)
+    return {
+        "task_id": task_dir.name,
+        "task_dir": str(task_dir),
+        "record_path": str(record_path),
+        "review_path": str(review_path),
+        "repo": repo,
+        "target": target,
+        "item_type": record.get("item_type"),
+        "title": record.get("title") or "",
+        "url": record.get("pull_url") or record.get("issue_url") or "",
+        "created_at": record.get("created_at") or "",
+        "runtime_used": record.get("runtime_used") or "",
+        "runtime_status": record.get("runtime_status") or "",
+        "posted": bool(record.get("posted")),
+        "posted_at": record.get("posted_at") or "",
+        "post_skipped_reason": record.get("post_skipped_reason") or "",
+        "suggested_comment": suggested.strip(),
+        "comment_body": comment_body,
+        "review": review,
+    }
+
+
+def save_task_suggested_comment(task_dir: Path, suggested_comment: str) -> dict[str, Any]:
+    record_path, review_path, record, _, _ = read_post_target(task_dir)
+    review = review_path.read_text(encoding="utf-8")
+    updated_review = replace_suggested_comment_section(review, record, suggested_comment)
+    write_text(review_path, updated_review)
+    record["review_edited_at"] = utc_now()
+    write_json(record_path, record)
+    return task_review_payload(task_dir)
 
 
 def normalize_comment_for_dedupe(value: str) -> str:
@@ -2167,6 +2468,9 @@ def post_review_comment(
     record["posted_at"] = utc_now()
     record["posted_repo"] = repo
     record["posted_target"] = target
+    if record.get("runtime_status") in {"needs_human_review", "stale"}:
+        record["runtime_status"] = "succeeded"
+    record.pop("post_skipped_reason", None)
     write_json(record_path, record)
     return repo, target
 
@@ -2301,12 +2605,10 @@ def ensure_webhook_env(path: Path) -> bool:
             "A2A_CODEX_PR_REVIEW_REASONING_EFFORT=high",
             "A2A_CODEX_COMMENT_MODEL=gpt-5.5",
             "A2A_CODEX_COMMENT_REASONING_EFFORT=medium",
-            "A2A_GITEA_DISCOVERY_POLL_SECONDS=60",
-            "A2A_GITEA_ACTIVE_PR_POLL_SECONDS=30",
+            "A2A_GITEA_MONITOR_SECONDS=60",
             "A2A_GITEA_PR_REVIEW_POLL_SECONDS=0",
             f"A2A_GITEA_PR_REVIEW_POLL_REPOS={DEFAULT_REPO}",
             "A2A_GITEA_PR_REVIEW_POLL_LIMIT=50",
-            "A2A_GITEA_MONITOR_SECONDS=60",
             f"A2A_GITEA_MONITOR_REPOS={DEFAULT_REPO}",
             "A2A_GITEA_MONITOR_LIMIT=50",
             "A2A_GITEA_MONITOR_PR_REVIEWS=true",
@@ -2420,10 +2722,10 @@ def load_webhook_config(env_path: Path | None = None, create_env: bool = True) -
         raise DemoError(f"A2A_GITEA_WEBHOOK_SECRET is required in {path}")
     repo_default = os.environ.get("A2A_GITEA_REPO", DEFAULT_REPO)
     a2a_root = Path(os.environ.get("A2A_WORKSPACE") or os.environ.get("A2A_WORKSPACE", str(WORKSPACE_ROOT))).expanduser().resolve()
-    discovery_seconds = int(
+    monitor_seconds = int(
         os.environ.get(
-            "A2A_GITEA_DISCOVERY_POLL_SECONDS",
-            os.environ.get("A2A_GITEA_MONITOR_SECONDS", "60"),
+            "A2A_GITEA_MONITOR_SECONDS",
+            os.environ.get("A2A_GITEA_DISCOVERY_POLL_SECONDS", "60"),
         )
     )
     return WebhookConfig(
@@ -2450,12 +2752,12 @@ def load_webhook_config(env_path: Path | None = None, create_env: bool = True) -
         pr_review_reasoning_effort=normalize_reasoning_effort(os.environ.get("A2A_CODEX_PR_REVIEW_REASONING_EFFORT", "high")),
         comment_model=os.environ.get("A2A_CODEX_COMMENT_MODEL", "gpt-5.5"),
         comment_reasoning_effort=normalize_reasoning_effort(os.environ.get("A2A_CODEX_COMMENT_REASONING_EFFORT", "medium")),
-        discovery_poll_seconds=discovery_seconds,
-        active_pr_poll_seconds=int(os.environ.get("A2A_GITEA_ACTIVE_PR_POLL_SECONDS", "30")),
+        discovery_poll_seconds=monitor_seconds,
+        active_pr_poll_seconds=monitor_seconds,
         pr_review_poll_seconds=int(os.environ.get("A2A_GITEA_PR_REVIEW_POLL_SECONDS", "0")),
         pr_review_poll_repos=expand_repo_list(os.environ.get("A2A_GITEA_PR_REVIEW_POLL_REPOS", repo_default), a2a_root),
         pr_review_poll_limit=int(os.environ.get("A2A_GITEA_PR_REVIEW_POLL_LIMIT", "50")),
-        monitor_poll_seconds=discovery_seconds,
+        monitor_poll_seconds=monitor_seconds,
         monitor_repos=expand_repo_list(os.environ.get("A2A_GITEA_MONITOR_REPOS", repo_default), a2a_root),
         monitor_limit=int(os.environ.get("A2A_GITEA_MONITOR_LIMIT", "50")),
         monitor_pr_reviews=parse_bool(os.environ.get("A2A_GITEA_MONITOR_PR_REVIEWS", "true")),
@@ -3457,9 +3759,6 @@ class WebhookStateStore:
 
     def reserve_or_retry_job(self, job: WebhookJob, retry_limit: int) -> str:
         now = int(time.time())
-        effective_retry_limit = retry_limit
-        if job.kind == "pr_review":
-            effective_retry_limit = max(effective_retry_limit, 1)
         try:
             with self.connect() as conn:
                 conn.execute(
@@ -3475,8 +3774,13 @@ class WebhookStateStore:
             pass
         with self.connect() as conn:
             retry_statuses = ["failed"]
-            if pr_review_current_head_needs_retry(f"{job.owner}/{job.repo}", job.number, job.head_sha):
-                retry_statuses.append("done")
+            retry_low_confidence = pr_review_current_head_low_confidence_needs_retry(
+                f"{job.owner}/{job.repo}",
+                job.number,
+                job.head_sha,
+            )
+            if retry_low_confidence:
+                retry_statuses.extend(["done", "needs_human_review"])
             status_placeholders = ",".join("?" for _ in retry_statuses)
             cursor = conn.execute(
                 f"""
@@ -3484,7 +3788,7 @@ class WebhookStateStore:
                 SET delivery_id = ?, status = ?, retry_count = retry_count + 1, updated_at = ?
                 WHERE dedupe_key = ? AND status IN ({status_placeholders}) AND retry_count < ?
                 """,
-                (job.delivery_id, "queued", now, job.dedupe_key, *retry_statuses, effective_retry_limit),
+                (job.delivery_id, "queued", now, job.dedupe_key, *retry_statuses, retry_limit),
             )
         return "retry" if cursor.rowcount else "duplicate"
 
@@ -3494,6 +3798,52 @@ class WebhookStateStore:
                 "UPDATE jobs SET status = ?, updated_at = ? WHERE dedupe_key = ?",
                 (status, int(time.time()), key),
             )
+
+    def start_job(self, key: str, delivery_id: str) -> bool:
+        now = int(time.time())
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "UPDATE jobs SET status = 'running', updated_at = ? WHERE dedupe_key = ? AND status = 'queued'",
+                (now, key),
+            )
+            if not cursor.rowcount:
+                return False
+            conn.execute(
+                "UPDATE deliveries SET status = 'running', summary = ?, updated_at = ? WHERE delivery_id = ?",
+                (key, now, delivery_id),
+            )
+        return True
+
+    def supersede_job(self, key: str, reason: str) -> bool:
+        now = int(time.time())
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT delivery_id FROM jobs WHERE dedupe_key = ? AND status IN ('queued', 'running')",
+                (key,),
+            ).fetchone()
+            if not row:
+                return False
+            delivery_id = str(row[0] or "")
+            cursor = conn.execute(
+                """
+                UPDATE jobs
+                SET status = 'superseded', updated_at = ?
+                WHERE dedupe_key = ? AND status IN ('queued', 'running')
+                """,
+                (now, key),
+            )
+            if not cursor.rowcount:
+                return False
+            if delivery_id:
+                conn.execute(
+                    """
+                    UPDATE deliveries
+                    SET status = 'superseded', summary = ?, updated_at = ?
+                    WHERE delivery_id = ?
+                    """,
+                    (reason, now, delivery_id),
+                )
+        return True
 
     def retry_job_after_transient_error(self, key: str, retry_limit: int) -> bool:
         now = int(time.time())
@@ -3524,6 +3874,50 @@ class WebhookStateStore:
                 (key,),
             ).fetchone()
         return str(row[0] or "") if row else ""
+
+    def job_dict_for_key(self, key: str) -> dict[str, Any]:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT datetime(created_at, 'unixepoch', 'localtime'), datetime(updated_at, 'unixepoch', 'localtime'),
+                       dedupe_key, delivery_id, kind, status, source_url, retry_count
+                FROM jobs
+                WHERE dedupe_key = ?
+                """,
+                (key,),
+            ).fetchone()
+        if not row:
+            return {}
+        status = str(row[5] or "")
+        return {
+            "created_at": row[0],
+            "updated_at": row[1],
+            "dedupe_key": row[2],
+            "delivery_id": row[3],
+            "kind": row[4],
+            "kind_label": job_kind_label(str(row[4] or "")),
+            "status": status,
+            "source_url": row[6],
+            "retry_count": row[7],
+            "active": status in {"queued", "running"},
+            "recent": status in {"queued", "running", "failed", "needs_human_review", "stale"},
+        }
+
+    def has_ignored_active_job_delivery(self, key: str) -> bool:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT 1
+                FROM deliveries
+                WHERE dedupe_key = ?
+                  AND status = 'ignored'
+                  AND summary LIKE 'active job % is running'
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (key,),
+            ).fetchone()
+        return bool(row)
 
     def active_job_for_item(self, item_key: str) -> dict[str, Any] | None:
         with self.connect() as conn:
@@ -3880,7 +4274,7 @@ class WebhookStateStore:
                 SELECT datetime(created_at, 'unixepoch', 'localtime'), datetime(updated_at, 'unixepoch', 'localtime'),
                        dedupe_key, kind, status, source_url, retry_count
                 FROM jobs
-                WHERE status IN ('queued', 'running', 'failed', 'done')
+                WHERE status IN ('queued', 'running', 'failed', 'done', 'needs_human_review', 'stale')
                 ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, updated_at DESC
                 """
             ).fetchall()
@@ -3978,6 +4372,12 @@ class WebhookStateStore:
             job_status = active_jobs.get(str(row[2] or "")) or {}
             if not job_status_visible_for_item(str(row[4] or ""), str(row[6] or ""), review_status, job_status):
                 job_status = {}
+            if not job_status and str(row[4] or "") == "pull_request":
+                head_sha = str(snapshot.get("head_sha") or review_status.get("current_head_sha") or "")
+                if head_sha and head_sha != "unknown":
+                    stored_job = self.job_dict_for_key(f"{row[3]}#{row[5]}@{head_sha}")
+                    if stored_job:
+                        job_status = stored_job
             if (
                 not job_status
                 and str(row[4] or "") == "pull_request"
@@ -3998,6 +4398,16 @@ class WebhookStateStore:
                     "task_id": review_status.get("failed_task_id") or "",
                     "task_dir": review_status.get("failed_task_dir") or "",
                 }
+            pr_review_action: dict[str, Any] = {}
+            if str(row[4] or "") == "pull_request":
+                pr_review_action = pr_review_manual_action_for_item(
+                    str(row[3] or ""),
+                    int(row[5] or 0),
+                    snapshot,
+                    relationships,
+                    review_status,
+                    job_status,
+                )
             items.append(
                 {
                     "changed_at": row[0],
@@ -4017,6 +4427,7 @@ class WebhookStateStore:
                     "relationship_labels": relationship_labels(relationships),
                     "review_status": review_status,
                     "job_status": job_status,
+                    "pr_review_action": pr_review_action,
                     "snapshot": snapshot,
                 }
             )
@@ -4087,12 +4498,14 @@ class WebhookBridge:
         self._stop = threading.Event()
         self._job_locks: dict[str, threading.Lock] = {}
         self._job_locks_guard = threading.Lock()
+        self._running_job_cancel_events: dict[str, threading.Event] = {}
+        self._running_job_cancel_events_guard = threading.Lock()
         self._worker: threading.Thread | None = None
         self._workers: list[threading.Thread] = []
         self._poller: threading.Thread | None = None
         self._monitor: threading.Thread | None = None
-        self._discovery: threading.Thread | None = None
-        self._active_pr: threading.Thread | None = None
+        self._scheduled_monitoring_enabled = threading.Event()
+        self._scheduled_monitoring_enabled.set()
         if start_worker:
             recovered = self.store.recover_running_jobs()
             if recovered:
@@ -4108,23 +4521,16 @@ class WebhookBridge:
                 self._workers.append(worker)
                 worker.start()
             self._worker = self._workers[0] if self._workers else None
-            if self.config.discovery_poll_seconds > 0 and self.config.monitor_repos:
-                self._discovery = threading.Thread(
-                    target=self._discovery_loop,
-                    name="a2a-agent-runner-discovery-poller",
+            if self.config.monitor_poll_seconds > 0 and self.config.monitor_repos:
+                self._monitor = threading.Thread(
+                    target=self._monitor_loop,
+                    name="a2a-agent-runner-monitor-poller",
                     daemon=True,
                 )
-                self._discovery.start()
-            if self.config.active_pr_poll_seconds > 0 and self.config.monitor_repos:
-                self._active_pr = threading.Thread(
-                    target=self._active_pr_loop,
-                    name="a2a-agent-runner-active-pr-poller",
-                    daemon=True,
-                )
-                self._active_pr.start()
+                self._monitor.start()
             if self.config.pr_review_poll_seconds > 0 and self.config.pr_review_poll_repos:
                 self._poller = threading.Thread(
-                    target=self._poll_review_requests_loop,
+                    target=self._poll_review_tracking_loop,
                     name="a2a-agent-runner-pr-review-poller",
                     daemon=True,
                 )
@@ -4171,8 +4577,8 @@ class WebhookBridge:
     def process_job(self, job: WebhookJob) -> None:
         lock = self._lock_for_job(job)
         with lock:
-            current_status = self.store.job_status_for_key(job.dedupe_key)
-            if current_status != "queued":
+            if not self.store.start_job(job.dedupe_key, job.delivery_id):
+                current_status = self.store.job_status_for_key(job.dedupe_key)
                 logging.info(
                     "skipping non-queued job kind=%s key=%s status=%s",
                     job.kind,
@@ -4180,18 +4586,42 @@ class WebhookBridge:
                     current_status or "missing",
                 )
                 return
-            self.store.update_delivery(job.delivery_id, "running", job.dedupe_key)
-            self.store.update_job(job.dedupe_key, "running")
+            cancel_event = threading.Event()
+            self._register_running_job(job.dedupe_key, cancel_event)
             try:
-                self._run_job(job)
+                self._run_job(job, cancel_event=cancel_event)
+                if self.store.job_status_for_key(job.dedupe_key) == "superseded":
+                    logging.info("discarded superseded job result kind=%s key=%s", job.kind, job.dedupe_key)
+                    return
+                task_status = ""
+                task_summary = ""
+                if job.kind == "pr_review" and not is_comment_job(job):
+                    _, record = latest_pr_review_task_record(f"{job.owner}/{job.repo}", job.number, job.head_sha)
+                    task_status = str(record.get("runtime_status") or "")
+                    task_summary = str(record.get("post_skipped_reason") or task_status or "PR review did not post")
+                if task_status in {"needs_human_review", "stale"}:
+                    raise JobIncomplete(task_status, task_summary)
                 self.store.update_job(job.dedupe_key, "done")
                 self.store.update_delivery(job.delivery_id, "done", job.dedupe_key)
                 logging.info("completed job kind=%s key=%s", job.kind, job.dedupe_key)
+            except JobIncomplete as exc:
+                if self.store.job_status_for_key(job.dedupe_key) == "superseded":
+                    logging.info("kept incomplete superseded job kind=%s key=%s", job.kind, job.dedupe_key)
+                    return
+                self.store.update_job(job.dedupe_key, exc.status)
+                self.store.update_delivery(job.delivery_id, exc.status, str(exc)[:500])
+                logging.info("incomplete job kind=%s key=%s status=%s reason=%s", job.kind, job.dedupe_key, exc.status, exc)
             except DuplicateCommentSkipped as exc:
+                if self.store.job_status_for_key(job.dedupe_key) == "superseded":
+                    logging.info("kept duplicate-skipped superseded job kind=%s key=%s", job.kind, job.dedupe_key)
+                    return
                 logging.info("skipped duplicate job kind=%s key=%s reason=%s", job.kind, job.dedupe_key, exc)
                 self.store.update_job(job.dedupe_key, "done")
                 self.store.update_delivery(job.delivery_id, "ignored", str(exc)[:500])
             except Exception as exc:
+                if self.store.job_status_for_key(job.dedupe_key) == "superseded":
+                    logging.info("stopped superseded job kind=%s key=%s reason=%s", job.kind, job.dedupe_key, exc)
+                    return
                 if is_transient_job_error(exc) and self.store.retry_job_after_transient_error(
                     job.dedupe_key,
                     TRANSIENT_JOB_RETRY_LIMIT,
@@ -4204,6 +4634,8 @@ class WebhookBridge:
                 logging.exception("failed job kind=%s key=%s", job.kind, job.dedupe_key)
                 self.store.update_job(job.dedupe_key, "failed")
                 self.store.update_delivery(job.delivery_id, "failed", str(exc)[:500])
+            finally:
+                self._clear_running_job(job.dedupe_key)
 
     def _lock_for_job(self, job: WebhookJob) -> threading.Lock:
         key = job_lock_key(job)
@@ -4213,6 +4645,22 @@ class WebhookBridge:
                 lock = threading.Lock()
                 self._job_locks[key] = lock
             return lock
+
+    def _register_running_job(self, key: str, cancel_event: threading.Event) -> None:
+        with self._running_job_cancel_events_guard:
+            self._running_job_cancel_events[key] = cancel_event
+
+    def _clear_running_job(self, key: str) -> None:
+        with self._running_job_cancel_events_guard:
+            self._running_job_cancel_events.pop(key, None)
+
+    def _cancel_running_job(self, key: str) -> bool:
+        with self._running_job_cancel_events_guard:
+            cancel_event = self._running_job_cancel_events.get(key)
+        if not cancel_event:
+            return False
+        cancel_event.set()
+        return True
 
     def shutdown(self) -> None:
         self._stop.set()
@@ -4224,8 +4672,6 @@ class WebhookBridge:
             *worker_threads,
             getattr(self, "_poller", None),
             getattr(self, "_monitor", None),
-            getattr(self, "_discovery", None),
-            getattr(self, "_active_pr", None),
         ]
         for thread in threads:
             if not thread:
@@ -4235,6 +4681,25 @@ class WebhookBridge:
             except KeyboardInterrupt:
                 logging.warning("shutdown interrupted while waiting for %s; continuing", thread.name)
                 return
+
+    def set_scheduled_monitoring_enabled(self, enabled: bool) -> None:
+        if enabled:
+            self._scheduled_monitoring_enabled.set()
+            logging.info("scheduled monitoring enabled")
+            return
+        self._scheduled_monitoring_enabled.clear()
+        logging.info("scheduled monitoring paused")
+
+    def scheduled_monitoring_enabled(self) -> bool:
+        return self._scheduled_monitoring_enabled.is_set()
+
+    def monitoring_status(self) -> dict[str, Any]:
+        return {
+            "enabled": self.scheduled_monitoring_enabled(),
+            "controllable": True,
+            "monitor_alive": bool(self._monitor and self._monitor.is_alive()),
+            "review_request_alive": bool(self._poller and self._poller.is_alive()),
+        }
 
     def _worker_loop(self) -> None:
         while not self._stop.is_set():
@@ -4247,38 +4712,24 @@ class WebhookBridge:
             finally:
                 self.jobs.task_done()
 
-    def _poll_review_requests_loop(self) -> None:
+    def _poll_review_tracking_loop(self) -> None:
         while not self._stop.is_set():
+            if not self.scheduled_monitoring_enabled():
+                self._stop.wait(1)
+                continue
             try:
-                queued = self.sync_review_requests()
-                if queued:
-                    logging.info("catch-up queued %s missed PR review request(s)", queued)
+                events = self.sync_review_requests()
+                if events:
+                    logging.info("catch-up tracked %s PR review request event(s)", len(events))
             except Exception as exc:
-                logging.warning("catch-up PR review request poll failed: %s", exc)
+                logging.warning("catch-up PR review request tracking failed: %s", exc)
             self._stop.wait(self.config.pr_review_poll_seconds)
-
-    def _discovery_loop(self) -> None:
-        while not self._stop.is_set():
-            try:
-                events = self.discovery_once()
-                for event in events:
-                    logging.info("discovery %s", event)
-            except Exception as exc:
-                logging.warning("discovery poll failed: %s", exc)
-            self._stop.wait(self.config.discovery_poll_seconds)
-
-    def _active_pr_loop(self) -> None:
-        while not self._stop.is_set():
-            try:
-                events = self.active_pr_once()
-                for event in events:
-                    logging.info("active-pr %s", event)
-            except Exception as exc:
-                logging.warning("active PR poll failed: %s", exc)
-            self._stop.wait(self.config.active_pr_poll_seconds)
 
     def _monitor_loop(self) -> None:
         while not self._stop.is_set():
+            if not self.scheduled_monitoring_enabled():
+                self._stop.wait(1)
+                continue
             try:
                 events = self.monitor_once()
                 for event in events:
@@ -4391,14 +4842,7 @@ class WebhookBridge:
                     snapshot,
                     expected_usernames,
                 ) and not current_relationships.get("created_by_me"):
-                    response = self._queue_pr_review_from_pr_data(
-                        repo_slug_value,
-                        pr_data,
-                        event_type="pr_review_discovery",
-                        delivery_prefix="discovery",
-                    )
-                    if response.status_code == 202:
-                        events.append(f"{repo_slug_value} PR#{number}: queued requested review")
+                    events.append(f"{repo_slug_value} PR#{number}: review requested")
             except Exception as exc:
                 logging.warning("discovery PR fetch failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
         events.extend(self._reconcile_tracked_prs(repo_slug_value, open_pr_numbers))
@@ -4528,14 +4972,44 @@ class WebhookBridge:
                     continue
 
                 if pr_review_newly_requested_or_head_changed(previous_snapshot, snapshot, expected_usernames):
-                    response = self._queue_pr_review_from_pr_data(
+                    events.append(f"{repo_slug_value} PR#{number}: review requested")
+                    continue
+
+                retry_low_confidence = pr_review_current_head_low_confidence_needs_retry(
+                    repo_slug_value,
+                    number,
+                    str(snapshot.get("head_sha") or ""),
+                )
+                if current_relationships.get("review_requested_from_me") and retry_low_confidence:
+                    events.append(f"{repo_slug_value} PR#{number}: review retry available")
+                    continue
+
+                current_head_sha = str(snapshot.get("head_sha") or "")
+                current_head_key = f"{repo_slug_value}#{number}@{current_head_sha}"
+                current_review_status = review_status_for_item(
+                    repo_slug_value,
+                    "pull_request",
+                    number,
+                    current_head_sha,
+                )
+                current_head_job_status = self.store.job_status_for_key(current_head_key)
+                if (
+                    current_relationships.get("review_requested_from_me")
+                    and current_head_sha
+                    and current_head_sha != "unknown"
+                    and not current_review_status.get("reviewed")
+                    and not current_review_status.get("current_head_failed")
+                    and self.store.has_ignored_active_job_delivery(current_head_key)
+                    and not can_queue_pr_comment_reply(
                         repo_slug_value,
-                        pr_data,
-                        event_type="pr_review_active",
-                        delivery_prefix="active",
+                        number,
+                        previous_snapshot,
+                        snapshot,
+                        expected_usernames,
                     )
-                    if response.status_code == 202:
-                        events.append(f"{repo_slug_value} PR#{number}: queued requested review")
+                    and current_head_job_status not in {"queued", "running", "done"}
+                ):
+                    events.append(f"{repo_slug_value} PR#{number}: current-head review available")
                     continue
 
                 if can_queue_pr_comment_reply(repo_slug_value, number, previous_snapshot, snapshot, expected_usernames):
@@ -4543,16 +5017,7 @@ class WebhookBridge:
                     if self.store.job_status_for_key(base_key) in {"queued", "running"}:
                         events.append(f"{repo_slug_value} PR#{number}: skipped comment reply while head review is active")
                         continue
-                    comment_hash = tracking_hashes(snapshot)[2]
-                    response = self._queue_pr_review_from_pr_data(
-                        repo_slug_value,
-                        pr_data,
-                        event_type="pr_comment_active",
-                        delivery_prefix="comment",
-                        dedupe_suffix=f"comment-{comment_hash[:12]}",
-                    )
-                    if response.status_code == 202:
-                        events.append(f"{repo_slug_value} PR#{number}: queued comment reply review")
+                    events.append(f"{repo_slug_value} PR#{number}: comment reply review available")
             except Exception as exc:
                 logging.warning("active PR fetch failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
         return events
@@ -4612,25 +5077,48 @@ class WebhookBridge:
                 logging.warning("discovery tracked PR refresh failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
         return events
 
-    def sync_review_requests(self) -> int:
-        queued = 0
+    def sync_review_requests(self) -> list[str]:
+        events: list[str] = []
+        expected_usernames = username_candidates(self.config.username, self.config.username_aliases)
         for repo_slug_value in self.config.pr_review_poll_repos:
             for item in list_open_prs(repo_slug_value, self.config.pr_review_poll_limit):
                 number = first_int(item.get("index"))
                 if not number:
                     continue
                 pr_data = fetch_pr(str(number), repo_slug_value)
-                if not pr_has_requested_review(pr_data, self.config.username, self.config.username_aliases):
-                    continue
-                response = self._queue_pr_review_from_pr_data(
-                    repo_slug_value,
-                    pr_data,
-                    event_type="pr_review_poll",
-                    delivery_prefix="poll",
+                try:
+                    review_comments = fetch_pr_review_comments(str(number), repo_slug_value, timeout=10)
+                except Exception as exc:
+                    logging.warning(
+                        "catch-up PR review comment fetch failed repo=%s pr=%s error=%s",
+                        repo_slug_value,
+                        number,
+                        exc,
+                    )
+                    review_comments = []
+                previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "pull_request", number)
+                snapshot = annotate_snapshot_relationship_labels(
+                    build_pr_snapshot(repo_slug_value, pr_data, review_comments),
+                    self.config.username,
+                    aliases=self.config.username_aliases,
+                    own_branch_prefixes=self.config.own_branch_prefixes,
                 )
-                if response.status_code == 202:
-                    queued += 1
-        return queued
+                summary = self.store.record_tracking_snapshot(snapshot)
+                if summary:
+                    events.append(f"{repo_slug_value} PR#{number}: {summary}")
+                relationships = snapshot_relationships(
+                    snapshot,
+                    self.config.username,
+                    aliases=self.config.username_aliases,
+                    own_branch_prefixes=self.config.own_branch_prefixes,
+                )
+                if (
+                    self.config.monitor_pr_reviews
+                    and not relationships.get("created_by_me")
+                    and pr_review_newly_requested_or_head_changed(previous_snapshot, snapshot, expected_usernames)
+                ):
+                    events.append(f"{repo_slug_value} PR#{number}: review requested")
+        return events
 
     def _queue_pr_review_from_pr_data(
         self,
@@ -4665,7 +5153,55 @@ class WebhookBridge:
         )
         return self._queue_job(job, f"queued PR review request {job.dedupe_key}")
 
-    def _run_job(self, job: WebhookJob) -> None:
+    def queue_manual_pr_review(self, repo_slug_value: str, number: int) -> WebhookResponse:
+        pr_data = fetch_pr(str(number), repo_slug_value, timeout=10)
+        try:
+            review_comments = fetch_pr_review_comments(str(number), repo_slug_value, timeout=10)
+        except Exception as exc:
+            logging.warning(
+                "manual PR review comment fetch failed repo=%s pr=%s error=%s",
+                repo_slug_value,
+                number,
+                exc,
+            )
+            review_comments = []
+        snapshot = annotate_snapshot_relationship_labels(
+            build_pr_snapshot(repo_slug_value, pr_data, review_comments),
+            self.config.username,
+            aliases=self.config.username_aliases,
+            own_branch_prefixes=self.config.own_branch_prefixes,
+        )
+        self.store.record_tracking_snapshot(snapshot)
+        relationships = snapshot_relationships(
+            snapshot,
+            self.config.username,
+            aliases=self.config.username_aliases,
+            own_branch_prefixes=self.config.own_branch_prefixes,
+        )
+        review_status = review_status_for_item(repo_slug_value, "pull_request", number, str(snapshot.get("head_sha") or ""))
+        active_job = self.store.active_job_for_item(tracking_item_key(repo_slug_value, "pull_request", number)) or {}
+        if not active_job:
+            head_sha = str(snapshot.get("head_sha") or "")
+            if head_sha and head_sha != "unknown":
+                active_job = self.store.job_dict_for_key(f"{repo_slug_value}#{number}@{head_sha}")
+        action = pr_review_manual_action_for_item(
+            repo_slug_value,
+            number,
+            snapshot,
+            relationships,
+            review_status,
+            active_job,
+        )
+        if not action.get("available"):
+            return WebhookResponse(409, {"status": "not_available", "reason": action.get("reason") or "not available"})
+        return self._queue_pr_review_from_pr_data(
+            repo_slug_value,
+            pr_data,
+            event_type="pr_review_manual",
+            delivery_prefix="manual",
+        )
+
+    def _run_job(self, job: WebhookJob, *, cancel_event: threading.Event | None = None) -> None:
         model, reasoning_effort = self._model_policy_for_job(job)
         args = argparse.Namespace(
             repo=f"{job.owner}/{job.repo}",
@@ -4676,6 +5212,7 @@ class WebhookBridge:
             max_comments=20,
             max_chars=12000,
             timeout=self.config.job_timeout_seconds,
+            cancel_event=cancel_event,
         )
         if job.kind == "issue":
             args.issue = str(job.number)
@@ -4818,7 +5355,7 @@ class WebhookBridge:
         reviewer = payload.get("requested_reviewer") or payload.get("reviewer")
         if not user_matches(reviewer, self.config.username):
             return self._record_ignored(delivery_id, event_type, "pr-reviewer", "review request was for another user")
-        return self._queue_pr_from_payload(delivery_id, event_type, payload)
+        return self._track_pr_from_payload(delivery_id, event_type, payload, "review requested; manual PR review required")
 
     def _handle_pull_request_event(self, delivery_id: str, event_type: str, payload: dict[str, Any]) -> WebhookResponse:
         action = payload.get("action")
@@ -4828,9 +5365,9 @@ class WebhookBridge:
         reviewers = pr.get("requested_reviewers") or payload.get("requested_reviewers")
         if not user_matches(reviewers, self.config.username):
             return self._record_ignored(delivery_id, event_type, "pr-reviewer", "PR is not assigned for this reviewer")
-        return self._queue_pr_from_payload(delivery_id, event_type, payload)
+        return self._track_pr_from_payload(delivery_id, event_type, payload, "PR changed; manual PR review required")
 
-    def _queue_pr_from_payload(self, delivery_id: str, event_type: str, payload: dict[str, Any]) -> WebhookResponse:
+    def _track_pr_from_payload(self, delivery_id: str, event_type: str, payload: dict[str, Any], summary: str) -> WebhookResponse:
         repo_ctx = extract_webhook_repo(payload, self.config.a2a_root)
         if not repo_ctx:
             return self._record_ignored(delivery_id, event_type, "pr-repo", "repository is not mapped locally")
@@ -4849,19 +5386,18 @@ class WebhookBridge:
             "unknown",
         )
         key = f"{owner}/{repo}#{number}@{head_sha}"
-        job = WebhookJob(
-            kind="pr_review",
-            delivery_id=delivery_id,
-            event_type=event_type,
-            dedupe_key=key,
-            owner=owner,
-            repo=repo,
-            number=number,
-            title=first_text(pr.get("title")),
-            url=first_text(pr.get("html_url"), pr.get("url")),
-            head_sha=head_sha,
+        repo_slug_value = f"{owner}/{repo}"
+        snapshot = annotate_snapshot_relationship_labels(
+            build_pr_snapshot(repo_slug_value, pr, []),
+            self.config.username,
+            aliases=self.config.username_aliases,
+            own_branch_prefixes=self.config.own_branch_prefixes,
         )
-        return self._queue_job(job, f"queued PR review request {key}")
+        self.store.record_tracking_snapshot(snapshot)
+        if not self.store.record_delivery(delivery_id, event_type, key, "tracked", summary):
+            return WebhookResponse(200, {"status": "duplicate", "delivery_id": delivery_id})
+        logging.info("tracked PR webhook event=%s delivery=%s key=%s summary=%s", event_type, delivery_id, key, summary)
+        return WebhookResponse(202, {"status": "tracked", "key": key, "reason": summary})
 
     def _handle_bridge_test(self, delivery_id: str, event_type: str, payload: dict[str, Any]) -> WebhookResponse:
         if not self.store.record_delivery(delivery_id, event_type, "bridge-test", "done", "signed bridge test received"):
@@ -4872,15 +5408,73 @@ class WebhookBridge:
 
     def _queue_job(self, job: WebhookJob, summary: str) -> WebhookResponse:
         delivery_inserted = self.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "queued", summary)
+        retry_limit = MANUAL_PR_REVIEW_RETRY_LIMIT if job.event_type == "pr_review_manual" else self.config.retry_failed_limit
         if not delivery_inserted:
-            reservation = self.store.reserve_or_retry_job(job, self.config.retry_failed_limit)
+            reservation = self.store.reserve_or_retry_job(job, retry_limit)
             if reservation == "retry":
                 self.store.update_delivery(job.delivery_id, "queued", summary)
                 logging.info("retrying failed job key=%s after duplicate delivery", job.dedupe_key)
                 self.jobs.put(job)
                 return WebhookResponse(202, {"status": "queued", "job": job.kind, "key": job.dedupe_key, "retry": True})
             return WebhookResponse(200, {"status": "duplicate", "delivery_id": job.delivery_id})
+
         active_job = self.store.active_job_for_item(job_active_item_key(job))
+        if active_job and active_job.get("dedupe_key") != job.dedupe_key:
+            tracked_snapshot = self.store.tracking_snapshot(f"{job.owner}/{job.repo}", "pull_request", job.number)
+            tracked_head_sha = str((tracked_snapshot or {}).get("head_sha") or "")
+            supersedes_current_head = bool(
+                can_supersede_active_job_with_pr_head(active_job, job)
+                and tracked_head_sha
+                and tracked_head_sha == job.head_sha
+            )
+            if supersedes_current_head:
+                active_key = str(active_job.get("dedupe_key") or "")
+                reason = f"superseded by newer PR head review {job.dedupe_key}"
+                superseded = self.store.supersede_job(active_key, reason)
+                cancelled = self._cancel_running_job(active_key)
+                logging.info(
+                    "superseded active PR review key=%s replacement=%s status=%s cancelled=%s",
+                    active_key,
+                    job.dedupe_key,
+                    active_job.get("status"),
+                    cancelled,
+                )
+                if superseded:
+                    self.store.update_delivery(job.delivery_id, "queued", f"{summary}; superseded {active_key}")
+                    active_job = None
+                else:
+                    logging.info("active PR review was no longer supersedable key=%s", active_key)
+                    refreshed = self.store.active_job_for_item(job_active_item_key(job))
+                    if refreshed and refreshed.get("dedupe_key") != job.dedupe_key:
+                        active_job = refreshed
+                    else:
+                        active_job = None
+                if active_job is not None and not superseded:
+                    reason = f"active job {active_job.get('dedupe_key')} is {active_job.get('status')}"
+                    self.store.update_delivery(job.delivery_id, "ignored", reason)
+                    logging.info("ignored job kind=%s key=%s reason=%s", job.kind, job.dedupe_key, reason)
+                    return WebhookResponse(
+                        200,
+                        {
+                            "status": "ignored",
+                            "reason": "active item job",
+                            "key": job.dedupe_key,
+                            "active_key": active_job.get("dedupe_key"),
+                        },
+                    )
+            else:
+                reason = f"active job {active_job.get('dedupe_key')} is {active_job.get('status')}"
+                self.store.update_delivery(job.delivery_id, "ignored", reason)
+                logging.info("ignored job kind=%s key=%s reason=%s", job.kind, job.dedupe_key, reason)
+                return WebhookResponse(
+                    200,
+                    {
+                        "status": "ignored",
+                        "reason": "active item job",
+                        "key": job.dedupe_key,
+                        "active_key": active_job.get("dedupe_key"),
+                    },
+                )
         if active_job and active_job.get("dedupe_key") != job.dedupe_key:
             reason = f"active job {active_job.get('dedupe_key')} is {active_job.get('status')}"
             self.store.update_delivery(job.delivery_id, "ignored", reason)
@@ -4894,7 +5488,7 @@ class WebhookBridge:
                     "active_key": active_job.get("dedupe_key"),
                 },
             )
-        reservation = self.store.reserve_or_retry_job(job, self.config.retry_failed_limit)
+        reservation = self.store.reserve_or_retry_job(job, retry_limit)
         if reservation == "duplicate":
             self.store.update_delivery(job.delivery_id, "ignored", f"duplicate job {job.dedupe_key}")
             return WebhookResponse(200, {"status": "ignored", "reason": "duplicate job", "key": job.dedupe_key})
@@ -5257,9 +5851,12 @@ def command_serve(args: argparse.Namespace) -> int:
     if args.workers is not None:
         updates["worker_count"] = max(1, min(4, args.workers))
     if args.discovery_interval is not None:
-        updates["discovery_poll_seconds"] = args.discovery_interval
         updates["monitor_poll_seconds"] = args.discovery_interval
+        updates["discovery_poll_seconds"] = args.discovery_interval
+        updates["active_pr_poll_seconds"] = args.discovery_interval
     if args.active_pr_interval is not None:
+        updates["monitor_poll_seconds"] = args.active_pr_interval
+        updates["discovery_poll_seconds"] = args.active_pr_interval
         updates["active_pr_poll_seconds"] = args.active_pr_interval
     if args.no_pr_review:
         updates["monitor_pr_reviews"] = False
@@ -5347,16 +5944,10 @@ def command_sync_review_requests(args: argparse.Namespace) -> int:
         config = WebhookConfig(**{**config.__dict__, **updates})
 
     bridge = WebhookBridge(config, start_worker=False)
-    queued = bridge.sync_review_requests()
-    processed = 0
-    while not bridge.jobs.empty():
-        job = bridge.jobs.get()
-        try:
-            bridge.process_job(job)
-            processed += 1
-        finally:
-            bridge.jobs.task_done()
-    print(f"Catch-up queued {queued} PR review request(s); processed {processed}.")
+    events = bridge.sync_review_requests()
+    for event in events:
+        print(event)
+    print(f"Catch-up tracked {len(events)} PR review request event(s); queued 0.")
     return 0
 
 
@@ -5399,9 +5990,12 @@ def command_monitor(args: argparse.Namespace) -> int:
         updates["discovery_poll_seconds"] = args.interval
         updates["active_pr_poll_seconds"] = args.interval
     if args.discovery_interval is not None:
-        updates["discovery_poll_seconds"] = args.discovery_interval
         updates["monitor_poll_seconds"] = args.discovery_interval
+        updates["discovery_poll_seconds"] = args.discovery_interval
+        updates["active_pr_poll_seconds"] = args.discovery_interval
     if args.active_pr_interval is not None:
+        updates["monitor_poll_seconds"] = args.active_pr_interval
+        updates["discovery_poll_seconds"] = args.active_pr_interval
         updates["active_pr_poll_seconds"] = args.active_pr_interval
     if args.repo:
         updates["monitor_repos"] = tuple(args.repo)
@@ -5440,10 +6034,9 @@ def command_monitor(args: argparse.Namespace) -> int:
 
     bridge = WebhookBridge(config, start_worker=True)
     logging.info(
-        "A2A monitor polling repos=%s discovery=%ss active_pr=%ss",
+        "A2A monitor polling repos=%s interval=%ss",
         ",".join(config.monitor_repos),
-        config.discovery_poll_seconds,
-        config.active_pr_poll_seconds,
+        config.monitor_poll_seconds,
     )
     try:
         while True:
@@ -5560,6 +6153,7 @@ def config_summary(config: WebhookConfig) -> dict[str, Any]:
         "monitor_seconds": config.monitor_poll_seconds,
         "discovery_poll_seconds": config.discovery_poll_seconds,
         "active_pr_poll_seconds": config.active_pr_poll_seconds,
+        "poll_interval_seconds": config.monitor_poll_seconds,
         "monitor_repos": list(config.monitor_repos),
         "monitor_limit": config.monitor_limit,
         "monitor_pr_reviews": config.monitor_pr_reviews,
@@ -5611,6 +6205,7 @@ def make_ui_handler(config: WebhookConfig, bridge: WebhookBridge | None = None):
                         "config": config_summary(config),
                         "counts": store.summary_counts(),
                         "task_count": len(iter_records()),
+                        "monitoring": bridge.monitoring_status() if bridge else {"enabled": False, "controllable": False},
                     }
                     self._json(200, payload)
                     return
@@ -5660,6 +6255,14 @@ def make_ui_handler(config: WebhookConfig, bridge: WebhookBridge | None = None):
                 if parsed.path == "/api/tasks":
                     self._json(200, {"tasks": task_record_dicts(query_int(query, "limit", 50))})
                     return
+                if parsed.path == "/api/task-review":
+                    task_dir = resolve_task_for_api(
+                        query_text(query, "task"),
+                        query_text(query, "repo") or None,
+                        {"issue": "issue", "pr": "pull_request"}.get(query_text(query, "type")),
+                    )
+                    self._json(200, {"task": task_review_payload(task_dir, max_chars=query_int(query, "max_chars", 12000, 1000, 60000))})
+                    return
                 self._json(404, {"error": "not found"})
             except Exception as exc:
                 logging.exception("UI GET failed path=%s", self.path)
@@ -5669,6 +6272,14 @@ def make_ui_handler(config: WebhookConfig, bridge: WebhookBridge | None = None):
             parsed = urllib.parse.urlparse(self.path)
             try:
                 body = self._read_json_body()
+                if parsed.path == "/api/monitoring/toggle":
+                    if bridge is None:
+                        self._json(409, {"error": "monitoring is not controllable in UI-only mode"})
+                        return
+                    enabled = bool(body.get("enabled"))
+                    bridge.set_scheduled_monitoring_enabled(enabled)
+                    self._json(200, {"monitoring": bridge.monitoring_status()})
+                    return
                 if parsed.path == "/api/monitor-once":
                     updates = {
                         "monitor_pr_reviews": bool(body.get("run_reviews")),
@@ -5678,9 +6289,9 @@ def make_ui_handler(config: WebhookConfig, bridge: WebhookBridge | None = None):
                     if runtime in {"auto", "claude", "codex", "none"}:
                         updates["runtime"] = runtime
                     action_config = WebhookConfig(**{**config.__dict__, **updates})
-                    bridge = WebhookBridge(action_config, start_worker=False)
-                    events = bridge.monitor_once()
-                    processed = self._drain_jobs(bridge)
+                    action_bridge = WebhookBridge(action_config, start_worker=False)
+                    events = action_bridge.monitor_once()
+                    processed = self._drain_jobs(action_bridge)
                     self._json(200, {"events": events, "processed": processed})
                     return
                 if parsed.path == "/api/sync-review-requests":
@@ -5695,10 +6306,9 @@ def make_ui_handler(config: WebhookConfig, bridge: WebhookBridge | None = None):
                     if isinstance(body.get("limit"), int) and body["limit"] > 0:
                         updates["pr_review_poll_limit"] = min(500, body["limit"])
                     action_config = WebhookConfig(**{**config.__dict__, **updates})
-                    bridge = WebhookBridge(action_config, start_worker=False)
-                    queued = bridge.sync_review_requests()
-                    processed = self._drain_jobs(bridge)
-                    self._json(200, {"queued": queued, "processed": processed})
+                    action_bridge = WebhookBridge(action_config, start_worker=False)
+                    events = action_bridge.sync_review_requests()
+                    self._json(200, {"events": events, "queued": 0, "processed": 0})
                     return
                 if parsed.path == "/api/scan-stale-issues":
                     updates: dict[str, Any] = {}
@@ -5717,6 +6327,38 @@ def make_ui_handler(config: WebhookConfig, bridge: WebhookBridge | None = None):
                     queued = action_bridge.jobs.qsize()
                     processed = 0 if (bridge is action_bridge and bool(body.get("queue_only", True))) else self._drain_jobs(action_bridge)
                     self._json(200, {"events": events, "queued": queued, "processed": processed})
+                    return
+                if parsed.path == "/api/pr-review/queue":
+                    if bridge is None:
+                        self._json(409, {"error": "PR review queue is not available in UI-only mode"})
+                        return
+                    repo = str(body.get("repo") or "")
+                    number = first_int(body.get("number"))
+                    if not repo or not number:
+                        self._json(400, {"error": "repo and number are required"})
+                        return
+                    response = bridge.queue_manual_pr_review(repo, number)
+                    self._json(response.status_code, response.body)
+                    return
+                if parsed.path == "/api/task-review/save":
+                    task_dir = resolve_task_for_api(str(body.get("task") or ""))
+                    suggested_comment = str(body.get("suggested_comment") or "")
+                    if not suggested_comment.strip():
+                        self._json(400, {"error": "suggested_comment is required"})
+                        return
+                    self._json(200, {"task": save_task_suggested_comment(task_dir, suggested_comment)})
+                    return
+                if parsed.path == "/api/task-review/post":
+                    task_dir = resolve_task_for_api(str(body.get("task") or ""))
+                    suggested_comment = str(body.get("suggested_comment") or "")
+                    if suggested_comment.strip():
+                        save_task_suggested_comment(task_dir, suggested_comment)
+                    repo, target = post_review_comment(
+                        task_dir,
+                        suggested_only=True,
+                        max_chars=first_int(body.get("max_chars")) or 12000,
+                    )
+                    self._json(200, {"status": "posted", "repo": repo, "target": target, "task": task_review_payload(task_dir)})
                     return
                 self._json(404, {"error": "not found"})
             except Exception as exc:
@@ -5937,13 +6579,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--discovery-interval",
         type=int,
         default=None,
-        help="Discovery poll interval in seconds. Default: env or 60.",
+        help="Legacy alias for the unified monitor poll interval in seconds. Default: env or 60.",
     )
     serve.add_argument(
         "--active-pr-interval",
         type=int,
         default=None,
-        help="Active PR poll interval in seconds. Default: env or 30.",
+        help="Legacy alias for the unified monitor poll interval in seconds. Default: env or 60.",
     )
     serve.add_argument(
         "--workers",
@@ -5951,7 +6593,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Number of parallel agent workers, clamped to 1-4. Default: env or 2.",
     )
-    serve.add_argument("--no-pr-review", action="store_true", help="Track PR changes without queueing PR reviews.")
+    serve.add_argument("--no-pr-review", action="store_true", help="Track PR changes without marking review-requested PRs actionable.")
     serve.add_argument("--no-post", action="store_true", help="Do not post successful monitored/webhook PR reviews.")
     serve_trigger_group = serve.add_mutually_exclusive_group()
     serve_trigger_group.add_argument(
@@ -6037,18 +6679,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     monitor.add_argument("--repo", action="append", help="Repo slug to monitor. Can be passed more than once.")
     monitor.add_argument("--limit", type=int, default=None, help="Maximum open issues/PRs to inspect per repo.")
-    monitor.add_argument("--interval", type=int, default=None, help="Legacy polling interval; sets both discovery and active PR loops.")
+    monitor.add_argument("--interval", type=int, default=None, help="Unified monitor polling interval in seconds.")
     monitor.add_argument(
         "--discovery-interval",
         type=int,
         default=None,
-        help="Discovery poll interval in seconds. Default: env or 60.",
+        help="Legacy alias for the unified monitor poll interval in seconds. Default: env or 60.",
     )
     monitor.add_argument(
         "--active-pr-interval",
         type=int,
         default=None,
-        help="Active PR poll interval in seconds. Default: env or 30.",
+        help="Legacy alias for the unified monitor poll interval in seconds. Default: env or 60.",
     )
     monitor.add_argument("--once", action="store_true", help="Run one scan and exit.")
     monitor_once_group = monitor.add_mutually_exclusive_group()
@@ -6058,10 +6700,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--runtime",
         choices=("auto", "claude", "codex", "none"),
         default=None,
-        help="Override runtime for review jobs queued by monitoring.",
+        help="Override runtime for issue jobs queued by monitoring.",
     )
-    monitor.add_argument("--no-pr-review", action="store_true", help="Track changes without queueing PR reviews.")
-    monitor.add_argument("--no-post", action="store_true", help="Do not post successful monitored PR reviews.")
+    monitor.add_argument("--no-pr-review", action="store_true", help="Track changes without marking review-requested PRs actionable.")
+    monitor.add_argument("--no-post", action="store_true", help="Do not post successful issue jobs from monitoring.")
     monitor.set_defaults(func=command_monitor)
 
     changes = subparsers.add_parser("changes", help="Show locally tracked issue/PR changes.")

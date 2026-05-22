@@ -2,6 +2,23 @@
 
 Local runner for basic Gitea issue and PR review automation, kept outside product workspaces.
 
+## Quick Start
+
+Start the full local runner:
+
+```bash
+cd /path/to/a2a-agent-runner
+bin/a2a-agent-runner serve --ngrok
+```
+
+Open the dashboard:
+
+```text
+http://127.0.0.1:48730
+```
+
+Use the URL printed by ngrok plus `/gitea` as the Gitea webhook URL if you are testing webhook delivery. Webhook-triggered automation is disabled by default; polling and dashboard actions are the normal workflow.
+
 ## Scope
 
 This is intentionally not a production workflow. It proves the smallest useful loop through one script:
@@ -77,6 +94,15 @@ Run a PR review without posting:
 bin/a2a-agent-runner pr-review 443 --runtime codex --no-post
 ```
 
+Manual dashboard review is the preferred flow for PRs that need human approval before posting:
+
+1. Open the dashboard and select a review-requested PR.
+2. Click `Start AI review` in the attention panel.
+3. Open `Review drafts`.
+4. Select the local draft, edit the suggested comment if needed, then click `Post approved comment`.
+
+The draft page reads local task packages from `tasks/`. It does not post until the explicit `Post approved comment` action succeeds.
+
 Force Codex read-only review:
 
 ```bash
@@ -138,10 +164,13 @@ This starts:
 
 - webhook listener and background worker on `http://127.0.0.1:48731/gitea`
 - two parallel agent workers by default, configurable with `A2A_GITEA_WORKER_COUNT` or `serve --workers`
-- discovery polling for open issue/PR tracking every 60s by default
-- active PR polling for review requests, head updates, and delegate comments every 30s by default
+- unified polling for open issue/PR tracking, review requests, head updates, and delegate comments every 60s by default
 - dashboard UI on `http://127.0.0.1:48730`
 - optional ngrok tunnel to the webhook listener when `--ngrok` is present
+
+Restart the runner after Python/backend changes. UI-only changes under `ui/index.html`
+are read on each request, so a browser refresh is usually enough for dashboard-only
+edits.
 
 The dashboard HTML is loaded from `ui/index.html` on every page request when
 that file exists. UI-only changes can be picked up by refreshing the browser;
@@ -205,9 +234,9 @@ Automation trigger policy:
 | Trigger | Target action | Automation gate |
 | --- | --- | --- |
 | Newly discovered or newly assigned issue assigned to `A2A_GITEA_USERNAME` | Fetch the issue, create a task package, rate `difficulty`, `workload`, `importance`, and `complexity`, then choose an automation path. | `hard-human-handoff`: package and dashboard handoff only. `mid-human-review`: plan package only. `easy-direct`: implement only if the strict gate passes. |
-| New PR review request for `A2A_GITEA_USERNAME` | Review the PR and leave a normalized review comment. | Uses `owner/repo#pr@head_sha` dedupe and skips PRs authored by `A2A_GITEA_USERNAME`. |
-| Review-requested PR receives new commits | Re-review when the requested review is still assigned to `A2A_GITEA_USERNAME` and the head SHA changed. | Uses a new `owner/repo#pr@head_sha` key. |
-| Reviewer-delegate PR receives a new external comment or review comment | Queue a comment-reply review when the head SHA is unchanged and the latest comment is from someone else. | Allowed only when review is currently requested from `A2A_GITEA_USERNAME` or the agent previously posted a review on that PR. |
+| New PR review request for `A2A_GITEA_USERNAME` | Track the PR, move it into the dashboard reviewing lane, and expose a manual Start AI review action. | Does not auto-queue an agent review from polling. Manual review uses `owner/repo#pr@head_sha` dedupe and skips PRs authored by `A2A_GITEA_USERNAME`. |
+| Review-requested PR receives new commits | Update the tracked PR head and mark the current head as needing review. | Does not auto-queue; use the dashboard Start AI review button when ready. |
+| Reviewer-delegate PR receives a new external comment or review comment | Update dashboard state as needing attention. | Does not auto-reply from polling. |
 | PR authored by `A2A_GITEA_USERNAME` receives comments/reviews | Update the dashboard state as needing attention. | Does not auto-reply or auto-review your own PR. |
 | Manual stale issue scan | Scan open issues with no assignee and no linked PR. | External untackled issues get a stale-scan job. Issues created by or assigned to `A2A_GITEA_USERNAME` get normal issue assessment. Assigned issues and linked-PR issues are skipped. |
 
@@ -221,10 +250,9 @@ bin/a2a-agent-runner pr-review <pr> --repo <owner/repo> --runtime "$A2A_GITEA_WE
 
 By default successful PR reviews auto-post their normalized review comment. Issue jobs run Codex but do not auto-post unless `A2A_GITEA_ISSUE_AUTO_POST=true`.
 
-The `serve` process keeps the webhook tunnel up, but automation is driven by two local polling loops while webhooks are disabled:
+The `serve` process keeps the webhook tunnel up, but automation is driven by one local polling loop while webhooks are disabled:
 
-- Discovery poll, default 60s: scans all configured repos for open issues/PRs, stores snapshots and relationship labels, queues newly assigned issue triage, and queues newly requested PR reviews.
-- Active PR poll, default 30s: scans tracked open PRs for newly assigned review requests, new head SHAs, and external comments/review comments that need reviewer-delegate action.
+- Unified monitor poll, default 60s: scans all configured repos for open issues/PRs, stores snapshots and relationship labels, queues newly assigned issue triage, and tracks review-requested PRs, new PR heads, and delegate comments for manual dashboard action.
 
 Local SQLite keeps snapshots for open tracked items and marks closed/merged items inactive so they are hidden from the main board. Task packages, job records, and tracking history are preserved for audit/debugging. In-flight PR reviews re-check the PR head before posting; if the head changed while the agent was reviewing, the stale result is kept locally but not posted. PR review packages include a changed-file summary from the fetched Gitea diff, and request-changes reviews are not auto-posted when the review admits it used truncated, unavailable, or unverified local-diff evidence.
 
@@ -250,8 +278,6 @@ A2A_CODEX_PR_REVIEW_MODEL=gpt-5.5
 A2A_CODEX_PR_REVIEW_REASONING_EFFORT=high
 A2A_CODEX_COMMENT_MODEL=gpt-5.5
 A2A_CODEX_COMMENT_REASONING_EFFORT=medium
-A2A_GITEA_DISCOVERY_POLL_SECONDS=60
-A2A_GITEA_ACTIVE_PR_POLL_SECONDS=30
 A2A_GITEA_MONITOR_SECONDS=60
 A2A_GITEA_MONITOR_REPOS=local
 A2A_GITEA_MONITOR_LIMIT=50
@@ -277,6 +303,8 @@ bin/a2a-agent-runner monitor --once
 bin/a2a-agent-runner monitor --once --discovery-only
 bin/a2a-agent-runner monitor --once --active-pr-only
 ```
+
+`--discovery-only` and `--active-pr-only` are debugging helpers for one-off scans; scheduled monitoring uses the unified poll.
 
 Run the explicit stale issue scan from the CLI:
 
@@ -308,7 +336,7 @@ http://127.0.0.1:48730
 
 The dashboard follows the same observability shape as Symphony's local UI: state summaries, tracked work, change timeline, jobs, deliveries, task packages, and explicit local actions. It binds to `127.0.0.1` by default and does not expose secrets.
 
-Run the older PR-review-only catch-up once:
+Run the older PR-review-only catch-up once. This is tracking-only; it updates local PR review-request state but does not queue AI review jobs:
 
 ```bash
 bin/a2a-agent-runner sync-review-requests

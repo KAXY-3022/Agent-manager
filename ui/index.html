@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,77 +7,101 @@
   <style>
     :root {
       color-scheme: light;
-      --bg: #f5f5f1;
-      --rail: #eeefe9;
+      --bg: #eef3fb;
+      --app: #f6f8fc;
+      --rail: #ffffff;
+      --rail-2: #f4f7fb;
       --panel: #ffffff;
-      --panel-alt: #f9faf7;
-      --ink: #20211f;
-      --muted: #6b6f68;
-      --line: #dcded6;
-      --line-strong: #c7cabc;
+      --panel-alt: #f7f9fd;
+      --panel-strong: #eef3fa;
+      --lane-bg: #f8fafc;
+      --card: #ffffff;
+      --card-subtle: #f8fafc;
+      --card-border: rgba(15, 23, 42, 0.12);
+      --ink: #101828;
+      --muted: #536176;
+      --subtle: #7b8798;
+      --line: rgba(15, 23, 42, 0.12);
+      --line-strong: rgba(15, 23, 42, 0.20);
       --accent: #2563eb;
-      --accent-soft: #dbeafe;
+      --accent-2: #0891b2;
+      --accent-soft: #eff5ff;
+      --accent-ink: #1d4ed8;
       --focus: #2563eb;
       --ok: #15803d;
-      --warn: #a16207;
+      --warn: #b45309;
       --bad: #b91c1c;
-      --rel-created: #0ea5e9;
-      --rel-created-soft: #e0f2fe;
-      --rel-assigned: #22c55e;
-      --rel-assigned-soft: #dcfce7;
-      --rel-review: #f97316;
-      --rel-review-soft: #ffedd5;
-      --rel-participating: #a855f7;
-      --rel-participating-soft: #f3e8ff;
+      --rel-created: #0284c7;
+      --rel-created-soft: #f0f9ff;
+      --rel-assigned: #16a34a;
+      --rel-assigned-soft: #f0fdf4;
+      --rel-review: #ea580c;
+      --rel-review-soft: #fff7ed;
+      --rel-participating: #7c3aed;
+      --rel-participating-soft: #f5f3ff;
       --rel-linked: #64748b;
-      --rel-linked-soft: #f1f5f9;
+      --rel-linked-soft: #f8fafc;
       --lane-wip: #64748b;
-      --lane-wip-soft: #f1f5f9;
+      --lane-wip-soft: #f8fafc;
       --lane-under-review: #2563eb;
-      --lane-under-review-soft: #dbeafe;
-      --lane-reviewing: #d97706;
-      --lane-reviewing-soft: #fef3c7;
+      --lane-under-review-soft: #eff5ff;
+      --lane-reviewing: #0f766e;
+      --lane-reviewing-soft: #f0fdfa;
       --lane-reviewed: #15803d;
-      --lane-reviewed-soft: #dcfce7;
-      --shadow: 0 1px 2px rgba(32, 33, 31, 0.06), 0 12px 26px rgba(32, 33, 31, 0.04);
-      --shadow-tight: 0 1px 2px rgba(32, 33, 31, 0.08);
+      --lane-reviewed-soft: #f0fdf4;
+      --shadow: 0 16px 40px rgba(15, 23, 42, 0.10);
+      --shadow-tight: 0 1px 2px rgba(15, 23, 42, 0.04);
+      --shadow-lift: 0 12px 24px rgba(15, 23, 42, 0.10);
+      --mono: "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+      --font: "Avenir Next", "Aptos", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
     }
     [data-theme="dark"] {
       color-scheme: dark;
-      --bg: #111315;
-      --rail: #17191c;
-      --panel: #1d2024;
-      --panel-alt: #24282d;
-      --ink: #eceff3;
-      --muted: #a4abb5;
-      --line: #30353b;
-      --line-strong: #444b55;
-      --accent: #60a5fa;
-      --accent-soft: #173658;
+      --bg: #080b12;
+      --app: #0b101a;
+      --rail: #0e1421;
+      --rail-2: #111928;
+      --panel: #111827;
+      --panel-alt: #151e2f;
+      --panel-strong: #1b2638;
+      --lane-bg: rgba(255, 255, 255, 0.025);
+      --card: #151e2f;
+      --card-subtle: #1b2638;
+      --card-border: rgba(148, 163, 184, 0.16);
+      --ink: #edf2fb;
+      --muted: #97a3b7;
+      --subtle: #6f7d92;
+      --line: rgba(148, 163, 184, 0.16);
+      --line-strong: rgba(148, 163, 184, 0.28);
+      --accent: #66d9ef;
+      --accent-2: #7aa2ff;
+      --accent-soft: rgba(96, 165, 250, 0.14);
+      --accent-ink: #bfdbfe;
       --focus: #93c5fd;
-      --ok: #6ee7a8;
-      --warn: #f8d76c;
-      --bad: #fca5a5;
-      --rel-created: #38bdf8;
-      --rel-created-soft: #082f49;
+      --ok: #4ade80;
+      --warn: #f59e0b;
+      --bad: #fb7185;
+      --rel-created: #60a5fa;
+      --rel-created-soft: rgba(96, 165, 250, 0.16);
       --rel-assigned: #4ade80;
-      --rel-assigned-soft: #052e16;
+      --rel-assigned-soft: rgba(74, 222, 128, 0.13);
       --rel-review: #fb923c;
-      --rel-review-soft: #431407;
-      --rel-participating: #c084fc;
-      --rel-participating-soft: #3b0764;
+      --rel-review-soft: rgba(251, 146, 60, 0.13);
+      --rel-participating: #a78bfa;
+      --rel-participating-soft: rgba(167, 139, 250, 0.14);
       --rel-linked: #94a3b8;
-      --rel-linked-soft: #1e293b;
+      --rel-linked-soft: rgba(148, 163, 184, 0.12);
       --lane-wip: #94a3b8;
-      --lane-wip-soft: #1e293b;
+      --lane-wip-soft: rgba(148, 163, 184, 0.12);
       --lane-under-review: #60a5fa;
-      --lane-under-review-soft: #173658;
-      --lane-reviewing: #f59e0b;
-      --lane-reviewing-soft: #422006;
+      --lane-under-review-soft: rgba(96, 165, 250, 0.16);
+      --lane-reviewing: #5eead4;
+      --lane-reviewing-soft: rgba(94, 234, 212, 0.14);
       --lane-reviewed: #6ee7a8;
-      --lane-reviewed-soft: #052e16;
-      --shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 14px 30px rgba(0, 0, 0, 0.18);
-      --shadow-tight: 0 1px 2px rgba(0, 0, 0, 0.38);
+      --lane-reviewed-soft: rgba(110, 231, 168, 0.13);
+      --shadow: 0 20px 55px rgba(0, 0, 0, 0.34);
+      --shadow-tight: 0 1px 0 rgba(255, 255, 255, 0.04);
+      --shadow-lift: 0 15px 24px rgba(0, 0, 0, 0.18);
     }
     * { box-sizing: border-box; }
     html {
@@ -87,9 +111,12 @@
     }
     body {
       margin: 0;
-      background: var(--bg);
+      background:
+        radial-gradient(circle at 30% -12%, color-mix(in srgb, var(--accent-2) 18%, transparent), transparent 31%),
+        radial-gradient(circle at 82% 8%, color-mix(in srgb, var(--ok) 10%, transparent), transparent 28%),
+        var(--bg);
       color: var(--ink);
-      font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font: 13px/1.45 var(--font);
       letter-spacing: 0;
       height: 100vh;
       min-height: 100vh;
@@ -103,9 +130,10 @@
     }
     .shell {
       display: grid;
-      grid-template-columns: 240px minmax(0, 1fr);
+      grid-template-columns: 252px minmax(0, 1fr);
       height: 100vh;
       min-height: 0;
+      background: var(--app);
     }
     .shell.sidebar-collapsed {
       grid-template-columns: minmax(0, 1fr);
@@ -115,8 +143,8 @@
     }
     .rail {
       border-right: 1px solid var(--line);
-      background: var(--rail);
-      padding: 18px 14px;
+      background: linear-gradient(180deg, var(--rail), var(--rail-2));
+      padding: 20px 16px;
       position: sticky;
       top: 0;
       height: 100vh;
@@ -128,6 +156,8 @@
       justify-content: space-between;
       gap: 10px;
       margin-bottom: 18px;
+      padding: 8px 8px 14px;
+      border-bottom: 1px solid var(--line);
     }
     .brand {
       display: flex;
@@ -140,20 +170,24 @@
       height: 28px;
       display: grid;
       place-items: center;
-      border: 1px solid var(--line-strong);
-      background: var(--panel);
-      border-radius: 6px;
-      font-weight: 700;
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+      background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--accent-2) 18%, transparent));
+      border-radius: 10px;
+      font-weight: 900;
+      color: var(--accent);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
     }
     .brand h1 {
       margin: 0;
       font-size: 15px;
-      font-weight: 650;
+      font-weight: 850;
+      letter-spacing: -0.03em;
     }
     .brand p {
       margin: 1px 0 0;
       color: var(--muted);
       font-size: 12px;
+      font-weight: 650;
     }
     .nav {
       display: grid;
@@ -163,19 +197,31 @@
     .nav button {
       width: 100%;
       border: 1px solid transparent;
-      border-radius: 6px;
+      border-radius: 11px;
       background: transparent;
-      color: var(--ink);
-      padding: 8px 9px;
+      color: var(--muted);
+      padding: 0 10px;
+      height: 38px;
       text-align: left;
       cursor: pointer;
       transition: background .16s ease, border-color .16s ease, transform .16s ease;
+      position: relative;
+      font-weight: 720;
     }
-    .nav button:hover { background: color-mix(in srgb, var(--panel) 72%, transparent); }
+    .nav button:hover { color: var(--ink); background: color-mix(in srgb, var(--accent) 12%, transparent); }
     .nav button.active {
-      background: var(--panel);
-      border-color: var(--line);
-      box-shadow: var(--shadow);
+      color: var(--ink);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      border-color: transparent;
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
+    .nav button.active::before {
+      content: "";
+      position: absolute;
+      display: none;
+    }
+    .nav button.active {
+      padding-left: 14px;
     }
     .rail-block {
       border-top: 1px solid var(--line);
@@ -188,14 +234,15 @@
     .rail-block code {
       display: block;
       color: var(--ink);
-      background: var(--panel);
+      background: color-mix(in srgb, var(--panel) 82%, transparent);
       border: 1px solid var(--line);
-      border-radius: 5px;
-      padding: 3px 5px;
+      border-radius: 9px;
+      padding: 5px 7px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       max-width: 100%;
+      font-size: 11px;
     }
     .rail-status-row {
       display: grid;
@@ -205,12 +252,12 @@
     .rail-status-label {
       color: var(--muted);
       font-size: 10px;
-      font-weight: 700;
-      letter-spacing: .06em;
+      font-weight: 850;
+      letter-spacing: .08em;
       text-transform: uppercase;
     }
     main {
-      padding: 18px 22px 28px;
+      padding: 0;
       min-width: 0;
       height: 100vh;
       min-height: 0;
@@ -223,8 +270,12 @@
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      margin-bottom: 16px;
       flex: 0 0 auto;
+      min-height: 66px;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--panel) 58%, transparent);
+      backdrop-filter: blur(14px);
     }
     .topbar-title {
       display: flex;
@@ -234,8 +285,10 @@
     }
     .topbar h2 {
       margin: 0;
-      font-size: 20px;
-      font-weight: 650;
+      font-size: 23px;
+      font-weight: 900;
+      line-height: 1.05;
+      letter-spacing: -0.045em;
     }
     .toolbar {
       display: flex;
@@ -258,28 +311,33 @@
       border: 1px solid var(--line-strong);
       background: var(--panel);
       color: var(--ink);
-      border-radius: 6px;
-      padding: 7px 10px;
+      border-radius: 10px;
+      min-height: 34px;
+      padding: 0 10px;
       cursor: pointer;
-      box-shadow: var(--shadow);
+      box-shadow: var(--shadow-tight);
       transition: background .16s ease, border-color .16s ease, transform .16s ease, box-shadow .16s ease;
+      font-weight: 760;
+      white-space: nowrap;
     }
     .btn:hover {
       border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
       transform: translateY(-1px);
+      background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+      box-shadow: var(--shadow-lift);
     }
     .btn.primary {
       border-color: #1d4ed8;
-      background: var(--accent);
-      color: white;
+      background: linear-gradient(135deg, var(--accent-2), var(--accent));
+      color: #06111f;
     }
     .btn.danger {
-      border-color: #f0b4b4;
+      border-color: color-mix(in srgb, var(--bad) 35%, var(--line));
       color: var(--bad);
     }
     .icon-btn {
-      width: 32px;
-      height: 32px;
+      width: 34px;
+      height: 34px;
       padding: 0;
       display: grid;
       place-items: center;
@@ -316,34 +374,113 @@
       opacity: .55;
     }
     .theme-toggle {
-      min-width: 94px;
+      min-width: 34px;
+      font-size: 0;
+    }
+    .theme-toggle::before {
+      content: "";
+      width: 15px;
+      height: 15px;
+      border: 2px solid currentColor;
+      border-radius: 999px;
+      box-shadow: 0 -7px 0 -5px currentColor, 0 7px 0 -5px currentColor, 7px 0 0 -5px currentColor, -7px 0 0 -5px currentColor;
+    }
+    .monitor-switch {
+      min-height: 34px;
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--panel) 82%, transparent);
+      color: var(--muted);
+      padding: 0 10px 0 6px;
+      box-shadow: var(--shadow-tight);
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }
+    .monitor-switch input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .monitor-switch-track {
+      width: 33px;
+      height: 19px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--muted) 22%, transparent);
+      border: 1px solid var(--line);
+      position: relative;
+      transition: background .16s ease, border-color .16s ease;
+    }
+    .monitor-switch-track::after {
+      content: "";
+      position: absolute;
+      width: 13px;
+      height: 13px;
+      left: 2px;
+      top: 2px;
+      border-radius: 999px;
+      background: var(--muted);
+      transition: transform .16s ease, background .16s ease;
+    }
+    .monitor-switch input:checked + .monitor-switch-track {
+      border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+      background: color-mix(in srgb, var(--ok) 18%, transparent);
+    }
+    .monitor-switch input:checked + .monitor-switch-track::after {
+      transform: translateX(14px);
+      background: var(--ok);
+    }
+    .monitor-switch-text {
+      font-size: 11px;
+      font-weight: 620;
+      color: var(--ink);
+    }
+    .monitor-switch.paused .monitor-switch-text {
+      color: var(--warn);
     }
     .grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(140px, 1fr));
-      gap: 10px;
-      margin-bottom: 12px;
+      gap: 12px;
+      margin: 18px 22px 16px;
     }
     .metric {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 12px;
-      box-shadow: var(--shadow);
-      min-height: 78px;
+      border-radius: 16px;
+      padding: 14px 15px;
+      box-shadow: var(--shadow-tight);
+      min-height: 88px;
+      position: relative;
+      overflow: hidden;
+    }
+    .metric::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 3px;
+      background: linear-gradient(180deg, var(--accent), var(--accent-2));
     }
     .metric .label {
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
+      font-weight: 850;
+      letter-spacing: .07em;
+      text-transform: uppercase;
     }
     .metric .value {
-      margin-top: 6px;
-      font-size: 22px;
-      font-weight: 680;
+      margin-top: 7px;
+      font-size: 28px;
+      line-height: 1;
+      font-weight: 900;
+      letter-spacing: -0.045em;
     }
     .metric .sub {
-      color: var(--muted);
-      margin-top: 3px;
+      color: var(--subtle);
+      margin-top: 8px;
       overflow-wrap: anywhere;
     }
     .section {
@@ -382,19 +519,21 @@
       justify-content: space-between;
       align-items: center;
       gap: 10px;
-      margin: 0 0 8px;
+      margin: 18px 22px 8px;
     }
     .section-head h3 {
       margin: 0;
-      font-size: 14px;
-      font-weight: 650;
+      font-size: 15px;
+      font-weight: 900;
+      letter-spacing: -0.025em;
     }
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      box-shadow: var(--shadow);
+      border-radius: 16px;
+      box-shadow: var(--shadow-tight);
       overflow: hidden;
+      margin: 0 22px 18px;
     }
     table {
       width: 100%;
@@ -414,7 +553,7 @@
       font-weight: 600;
     }
     tr:last-child td { border-bottom: 0; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    .mono { font-family: var(--mono); font-size: 12px; }
     .muted { color: var(--muted); }
     .title-cell {
       white-space: nowrap;
@@ -433,11 +572,14 @@
       display: inline-flex;
       align-items: center;
       border-radius: 999px;
-      padding: 2px 7px;
-      border: 1px solid var(--line-strong);
-      background: var(--panel-alt);
-      font-size: 12px;
+      padding: 2px 8px;
+      min-height: 22px;
+      border: 1px solid var(--line);
+      background: color-mix(in srgb, var(--panel-alt) 82%, transparent);
+      font-size: 11px;
       max-width: 100%;
+      font-weight: 850;
+      white-space: nowrap;
     }
     .badge.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: color-mix(in srgb, var(--ok) 12%, var(--panel)); }
     .badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 12%, var(--panel)); }
@@ -462,6 +604,7 @@
       background: color-mix(in srgb, var(--accent) 10%, var(--panel));
       color: var(--accent);
       font-size: 12px;
+      font-weight: 680;
       white-space: nowrap;
     }
     .job-dot {
@@ -483,6 +626,20 @@
       border-color: color-mix(in srgb, var(--bad) 45%, var(--line));
       background: color-mix(in srgb, var(--bad) 10%, var(--panel));
     }
+    .job-indicator.needs_human_review,
+    .job-indicator.stale {
+      color: var(--warn);
+      border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+      background: color-mix(in srgb, var(--warn) 10%, var(--panel));
+    }
+    .job-indicator.done,
+    .job-indicator.completed,
+    .job-indicator.succeeded,
+    .job-indicator.success {
+      color: var(--ok);
+      border-color: color-mix(in srgb, var(--ok) 45%, var(--line));
+      background: color-mix(in srgb, var(--ok) 10%, var(--panel));
+    }
     @keyframes jobPulse {
       0% { transform: scale(.82); opacity: .65; }
       50% { transform: scale(1.15); opacity: 1; }
@@ -490,27 +647,40 @@
     }
     .tabs {
       display: inline-flex;
-      border: 1px solid var(--line-strong);
-      border-radius: 6px;
+      align-items: center;
+      gap: 3px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
       overflow: hidden;
-      background: var(--panel);
+      background: color-mix(in srgb, var(--muted) 8%, transparent);
+      box-shadow: none;
     }
     .tabs button {
+      height: 31px;
       border: 0;
-      border-right: 1px solid var(--line-strong);
-      padding: 6px 10px;
+      border-radius: 9px;
+      padding: 0 11px;
       background: transparent;
       cursor: pointer;
+      color: var(--muted);
+      transition: background .16s ease, color .16s ease;
+      font-size: 12px;
+      font-weight: 800;
     }
     .tabs button:last-child { border-right: 0; }
-    .tabs button.active { background: var(--accent-soft); color: var(--accent); }
+    .tabs button.active {
+      background: color-mix(in srgb, var(--accent) 17%, transparent);
+      color: var(--ink);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent);
+    }
     .filter-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
       gap: 10px;
-      margin-bottom: 8px;
+      margin: 0 22px 12px;
     }
     .filter-group {
       display: flex;
@@ -520,8 +690,10 @@
     }
     .filter-label {
       color: var(--muted);
-      font-size: 12px;
-      font-weight: 600;
+      font-size: 11px;
+      font-weight: 850;
+      letter-spacing: .08em;
+      text-transform: uppercase;
     }
     .relation-list {
       display: flex;
@@ -531,19 +703,33 @@
     .kanban {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
+      gap: 12px;
       align-items: stretch;
       overflow-x: hidden;
       overflow-y: hidden;
       flex: 1 1 auto;
       min-height: 220px;
+      padding: 0;
+    }
+    .board-frame {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      margin: 0 22px 18px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 92%, transparent));
+      box-shadow: var(--shadow);
+      overflow: hidden;
     }
     .kanban-column {
       min-width: 0;
-      background: var(--panel);
+      background: var(--lane-bg);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      box-shadow: var(--shadow);
+      border-radius: 15px;
+      box-shadow: var(--shadow-tight);
       overflow: hidden;
       min-height: 0;
       max-height: 100%;
@@ -551,6 +737,7 @@
       flex-direction: column;
       --lane-color: var(--rel-linked);
       --lane-soft: var(--rel-linked-soft);
+      position: relative;
     }
     .kanban-column.lane-wip { --lane-color: var(--lane-wip); --lane-soft: var(--lane-wip-soft); }
     .kanban-column.lane-under_review { --lane-color: var(--lane-under-review); --lane-soft: var(--lane-under-review-soft); }
@@ -561,27 +748,46 @@
       justify-content: space-between;
       align-items: center;
       gap: 8px;
-      padding: 8px 9px 8px 10px;
+      min-height: 52px;
+      padding: 11px 12px;
       border-bottom: 1px solid var(--line);
-      border-top: 3px solid var(--lane-color);
-      background: color-mix(in srgb, var(--lane-soft) 42%, var(--panel-alt));
-      font-size: 12px;
-      font-weight: 650;
+      border-top: 0;
+      background: linear-gradient(90deg, var(--lane-soft), transparent 75%);
+      font-size: 13px;
+      font-weight: 900;
+      letter-spacing: -0.02em;
       flex: 0 0 auto;
+      position: relative;
+      z-index: 1;
     }
     .kanban-head-title {
       min-width: 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .kanban-head-title::before {
+      content: "";
+      width: 8px;
+      height: 24px;
+      border-radius: 999px;
+      background: var(--lane-color);
+      box-shadow: 0 0 18px var(--lane-soft);
+      flex: 0 0 auto;
     }
     .kanban-count {
-      min-width: 24px;
+      min-width: 27px;
+      min-height: 25px;
       justify-content: center;
       color: var(--lane-color);
-      border-color: color-mix(in srgb, var(--lane-color) 52%, var(--line));
-      background: color-mix(in srgb, var(--lane-color) 11%, var(--panel));
+      border-color: color-mix(in srgb, var(--lane-color) 45%, var(--line));
+      background: color-mix(in srgb, var(--panel) 74%, var(--lane-soft));
       font-variant-numeric: tabular-nums;
+      font-size: 12px;
+      font-weight: 900;
     }
     .kanban-body {
       display: grid;
@@ -592,16 +798,19 @@
       align-content: start;
       overflow: hidden;
       flex: 1 1 auto;
+      background: var(--lane-bg);
+      position: relative;
+      z-index: 1;
     }
     .issue-row {
-      margin-top: 12px;
+      margin: 12px 0 0;
       position: sticky;
       bottom: 0;
       z-index: 8;
       flex: 0 0 auto;
-      background: color-mix(in srgb, var(--panel) 90%, var(--rail));
+      background: linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 86%, transparent));
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 16px;
       box-shadow: var(--shadow);
       overflow: hidden;
     }
@@ -610,11 +819,12 @@
       justify-content: space-between;
       align-items: center;
       gap: 8px;
-      padding: 6px 8px;
+      min-height: 44px;
+      padding: 8px 10px;
       border-bottom: 1px solid var(--line);
-      background: color-mix(in srgb, var(--rail) 58%, var(--panel));
+      background: color-mix(in srgb, var(--panel-alt) 68%, transparent);
       font-size: 12px;
-      font-weight: 650;
+      font-weight: 900;
     }
     .issue-row-title {
       display: flex;
@@ -623,7 +833,8 @@
       min-width: 0;
     }
     .issue-scan-btn {
-      padding: 4px 8px;
+      min-height: 30px;
+      padding: 0 9px;
       font-size: 12px;
       box-shadow: none;
       white-space: nowrap;
@@ -632,28 +843,29 @@
       display: grid;
       grid-template-columns: repeat(var(--issue-columns, 4), minmax(0, 1fr));
       grid-auto-rows: var(--issue-card-height);
-      gap: 6px;
-      padding: 6px;
+      gap: 8px;
+      padding: 8px;
       max-height: 142px;
       overflow: hidden;
       align-items: start;
     }
     .issue-card {
       min-width: 0;
-      border: 1px solid var(--line);
+      border: 1px solid var(--card-border);
       border-left: 6px solid var(--rel-linked);
-      border-radius: 7px;
-      background: color-mix(in srgb, var(--rel-linked-soft) 35%, var(--panel));
+      border-radius: 12px;
+      background: var(--card-subtle);
       padding: 7px 8px;
       display: grid;
       gap: 5px;
       height: var(--issue-card-height);
       overflow: hidden;
+      box-shadow: var(--shadow-tight);
     }
-    .issue-card.rel-created { border-left-color: var(--rel-created); background: color-mix(in srgb, var(--rel-created-soft) 55%, var(--panel)); }
-    .issue-card.rel-assigned { border-left-color: var(--rel-assigned); background: color-mix(in srgb, var(--rel-assigned-soft) 55%, var(--panel)); }
-    .issue-card.rel-review { border-left-color: var(--rel-review); background: color-mix(in srgb, var(--rel-review-soft) 55%, var(--panel)); }
-    .issue-card.rel-participating { border-left-color: var(--rel-participating); background: color-mix(in srgb, var(--rel-participating-soft) 55%, var(--panel)); }
+    .issue-card.rel-created { border-left-color: var(--rel-created); }
+    .issue-card.rel-assigned { border-left-color: var(--rel-assigned); }
+    .issue-card.rel-review { border-left-color: var(--rel-review); }
+    .issue-card.rel-participating { border-left-color: var(--rel-participating); }
     .work-card.attention-needed,
     .issue-card.attention-needed,
     tr.attention-needed {
@@ -708,10 +920,10 @@
     .work-card {
       --rel-color: var(--line-strong);
       --rel-soft: var(--panel-alt);
-      border: 1px solid var(--line);
-      border-left: 4px solid var(--line-strong);
-      border-radius: 8px;
-      background: var(--panel);
+      border: 1px solid color-mix(in srgb, var(--rel-color) 24%, var(--card-border));
+      border-left: 4px solid var(--rel-color);
+      border-radius: 14px;
+      background: linear-gradient(180deg, var(--card), color-mix(in srgb, var(--card) 88%, var(--rel-soft)));
       padding: var(--board-card-padding);
       display: flex;
       flex-direction: column;
@@ -721,43 +933,38 @@
       font-size: var(--board-card-font-size);
       position: relative;
       box-shadow: var(--shadow-tight);
-      transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+      transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease, background .16s ease;
     }
+    [data-theme="dark"] .work-card {
+      box-shadow: none;
+    }
+    .work-card.rel-created { --rel-color: var(--rel-created); --rel-soft: var(--rel-created-soft); }
+    .work-card.rel-assigned { --rel-color: var(--rel-assigned); --rel-soft: var(--rel-assigned-soft); }
+    .work-card.rel-review { --rel-color: var(--rel-review); --rel-soft: var(--rel-review-soft); }
+    .work-card.rel-participating { --rel-color: var(--rel-participating); --rel-soft: var(--rel-participating-soft); }
+    .work-card.rel-linked { --rel-color: var(--rel-linked); --rel-soft: var(--rel-linked-soft); }
     .work-card::before {
       content: "";
       position: absolute;
-      inset: 0 0 auto 0;
-      height: 2px;
-      background: color-mix(in srgb, var(--line-strong) 58%, transparent);
-      opacity: .62;
+      inset: 0 auto 0 0;
+      width: 4px;
+      height: auto;
+      background: var(--rel-color);
+      opacity: .9;
     }
     .work-card:hover {
-      border-color: var(--line-strong);
-      box-shadow: var(--shadow);
+      border-color: color-mix(in srgb, var(--rel-color) 42%, var(--card-border));
+      box-shadow: var(--shadow-lift);
       transform: translateY(-1px);
-    }
-    .work-card-title {
-      flex: 0 0 auto;
-      font-weight: 620;
-      line-height: 1.3;
-      display: -webkit-box;
-      -webkit-line-clamp: var(--board-card-title-lines);
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-    }
-    .work-card-title a {
-      color: var(--ink);
-      text-decoration: none;
-    }
-    .work-card-title a:hover {
-      color: var(--accent);
-      text-decoration: underline;
     }
     .work-card-identity {
       display: grid;
-      gap: 5px;
+      gap: 4px;
       min-width: 0;
       padding-right: 22px;
+      height: 100%;
+      align-content: center;
+      padding-left: 4px;
     }
     .work-card-identity a {
       color: var(--ink);
@@ -772,9 +979,10 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      font-size: 13px;
-      font-weight: 660;
-      line-height: 1.25;
+      font-size: 14px;
+      font-weight: 900;
+      line-height: 1.18;
+      letter-spacing: -0.03em;
     }
     .work-card-identity-sub {
       display: flex;
@@ -785,18 +993,34 @@
       font-size: 12px;
       white-space: nowrap;
       overflow: hidden;
+      font-weight: 680;
     }
     .work-card-pr-number {
       flex: 0 0 auto;
-      color: var(--accent);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--accent-ink);
+      font-family: var(--mono);
       font-size: 11px;
-      font-weight: 700;
+      font-weight: 900;
     }
-    .work-card-creator {
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
+    .work-card-review-flag {
+      min-height: 16px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid rgba(148, 163, 184, .22);
+      background: rgba(148, 163, 184, .08);
+      color: var(--subtle);
+      padding: 0 5px;
+      font-size: 8px;
+      line-height: 1;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .work-card-review-flag.approved {
+      color: var(--ok);
+      border-color: color-mix(in srgb, var(--ok) 34%, var(--line));
+      background: color-mix(in srgb, var(--ok) 10%, transparent);
     }
     .work-card-header {
       display: flex;
@@ -823,8 +1047,9 @@
       border-radius: 5px;
       padding: 1px 5px;
       background: color-mix(in srgb, var(--panel) 78%, var(--rel-soft, var(--accent-soft)));
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-family: var(--mono);
       font-size: 11px;
+      font-weight: 800;
     }
     .work-card-meta .badge {
       flex: 0 0 auto;
@@ -856,7 +1081,7 @@
     }
     .work-card-detail .work-card-branch {
       flex: 1 1 auto;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-family: var(--mono);
       font-size: 11px;
     }
     .work-card-detail .meta-sep {
@@ -888,9 +1113,9 @@
       min-width: 0;
       max-width: 100%;
       border: 1px solid color-mix(in srgb, var(--line-strong) 70%, transparent);
-      border-radius: 5px;
+      border-radius: 8px;
       padding: 1px 5px;
-      background: color-mix(in srgb, var(--panel) 72%, var(--panel-alt));
+      background: color-mix(in srgb, var(--card) 72%, var(--panel-alt));
       color: var(--muted);
       overflow: hidden;
       text-overflow: ellipsis;
@@ -909,8 +1134,8 @@
     }
     .work-card-job {
       position: absolute;
-      top: 6px;
-      right: 6px;
+      top: 7px;
+      right: 7px;
       z-index: 2;
     }
     .work-card-job .job-indicator {
@@ -919,8 +1144,9 @@
       width: 18px;
       height: 18px;
       justify-content: center;
-      background: var(--panel);
-      box-shadow: var(--shadow-tight);
+      background: var(--card);
+      box-shadow: 0 0 0 2px var(--card);
+      border-width: 1px;
     }
     .work-card-job .job-text {
       display: none;
@@ -928,6 +1154,178 @@
     .work-card-job .job-dot {
       width: 8px;
       height: 8px;
+    }
+    .draft-workspace {
+      height: calc(100vh - 54px);
+      min-height: 0;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: minmax(250px, 310px) minmax(360px, 1fr) minmax(330px, .78fr);
+      gap: 12px;
+      overflow: hidden;
+    }
+    .draft-pane {
+      min-height: 0;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel-alt) 58%, transparent));
+      box-shadow: var(--shadow-tight);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .draft-pane-head {
+      min-height: 54px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      background: color-mix(in srgb, var(--panel-alt) 62%, transparent);
+    }
+    .draft-pane-title {
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 680;
+      letter-spacing: -.01em;
+    }
+    .draft-pane-kicker {
+      margin-bottom: 2px;
+      color: var(--subtle);
+      font-size: 10px;
+      font-weight: 620;
+      letter-spacing: .11em;
+      text-transform: uppercase;
+    }
+    .draft-list {
+      min-height: 0;
+      overflow: auto;
+      padding: 8px;
+      display: grid;
+      align-content: start;
+      gap: 7px;
+    }
+    .draft-item {
+      width: 100%;
+      border: 1px solid var(--card-border);
+      border-left: 4px solid var(--line-strong);
+      border-radius: 12px;
+      background: var(--card);
+      color: var(--ink);
+      padding: 9px 10px;
+      cursor: pointer;
+      text-align: left;
+      display: grid;
+      gap: 5px;
+      transition: border-color .16s ease, background .16s ease, transform .16s ease;
+    }
+    .draft-item:hover {
+      transform: translateY(-1px);
+      border-color: color-mix(in srgb, var(--accent) 42%, var(--card-border));
+    }
+    .draft-item.active {
+      border-left-color: var(--accent);
+      border-color: color-mix(in srgb, var(--accent) 48%, var(--card-border));
+      background: color-mix(in srgb, var(--accent) 10%, var(--card));
+    }
+    .draft-item-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-width: 0;
+    }
+    .draft-target {
+      font-family: var(--mono);
+      color: var(--accent-ink);
+      font-size: 12px;
+      font-weight: 680;
+      white-space: nowrap;
+    }
+    .draft-title {
+      min-width: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.25;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .draft-editor {
+      min-height: 0;
+      flex: 1 1 auto;
+      resize: none;
+      border: 0;
+      outline: 0;
+      background: color-mix(in srgb, var(--panel) 86%, transparent);
+      color: var(--ink);
+      padding: 14px;
+      font: 12px/1.55 var(--mono);
+      tab-size: 2;
+    }
+    .draft-preview {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: auto;
+      margin: 0;
+      padding: 14px;
+      color: var(--ink);
+      background: color-mix(in srgb, var(--panel) 86%, transparent);
+      font: 12px/1.55 var(--mono);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .draft-meta {
+      display: grid;
+      gap: 7px;
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+    }
+    .draft-meta-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+    }
+    .draft-meta-row strong {
+      min-width: 0;
+      color: var(--ink);
+      font-weight: 620;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .draft-actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 10px 14px;
+      border-top: 1px solid var(--line);
+      background: color-mix(in srgb, var(--panel-alt) 50%, transparent);
+    }
+    .draft-actions .btn {
+      box-shadow: none;
+    }
+    .draft-actions .btn.primary {
+      margin-left: auto;
+    }
+    .draft-empty {
+      flex: 1 1 auto;
+      display: grid;
+      place-items: center;
+      padding: 22px;
+      color: var(--muted);
+      text-align: center;
+    }
+    .draft-empty strong {
+      display: block;
+      margin-bottom: 4px;
+      color: var(--ink);
+      font-weight: 680;
     }
     .hidden { display: none; }
     .logline {
@@ -947,10 +1345,10 @@
       place-items: center;
       height: 100%;
       min-height: 44px;
-      border: 1px dashed var(--line-strong);
+      border: 1px dashed color-mix(in srgb, var(--line-strong) 76%, transparent);
       border-radius: 7px;
       color: var(--muted);
-      background: color-mix(in srgb, var(--panel-alt) 76%, transparent);
+      background: color-mix(in srgb, var(--lane-bg) 78%, var(--panel));
       font-size: 12px;
     }
     .toast {
@@ -966,6 +1364,647 @@
       display: none;
       overflow-wrap: anywhere;
     }
+    .shell {
+      grid-template-columns: 280px minmax(0, 1fr);
+    }
+    .rail {
+      padding: 24px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--rail) 94%, #0f172a), var(--rail-2)),
+        var(--rail);
+      overflow: hidden;
+    }
+    .rail-top {
+      margin: 0;
+      padding: 8px 10px 26px;
+    }
+    .mark {
+      width: 48px;
+      height: 48px;
+      border-radius: 16px;
+      font-size: 0;
+      position: relative;
+      flex: 0 0 auto;
+    }
+    .mark::before,
+    .mark::after {
+      content: "";
+      position: absolute;
+      left: 14px;
+      right: 14px;
+      height: 4px;
+      border-radius: 999px;
+      background: currentColor;
+      opacity: .95;
+    }
+    .mark::before {
+      top: 15px;
+      box-shadow: 0 9px 0 currentColor;
+    }
+    .mark::after {
+      bottom: 11px;
+      right: 22px;
+      opacity: .65;
+    }
+    .brand {
+      gap: 14px;
+    }
+    .brand h1 {
+      font-size: 16px;
+    }
+    .brand p {
+      margin-top: 2px;
+      font-size: 12px;
+    }
+    .workspace-card,
+    .agent-health {
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 86%, transparent), color-mix(in srgb, var(--panel-alt) 72%, transparent));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
+    }
+    .workspace-card {
+      padding: 18px;
+    }
+    .workspace-label,
+    .nav-title,
+    .repo-title {
+      color: var(--subtle);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .workspace-name {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 13px;
+      color: var(--ink);
+      font-size: 16px;
+      font-weight: 900;
+      letter-spacing: -.03em;
+    }
+    .live-pill {
+      min-height: 26px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 10px;
+      border-radius: 999px;
+      color: #b9f8cf;
+      border: 1px solid rgba(74, 222, 128, .28);
+      background: rgba(74, 222, 128, .10);
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .nav-section,
+    .repo-section {
+      display: grid;
+      gap: 10px;
+    }
+    .nav {
+      gap: 8px;
+      margin: 0;
+    }
+    .nav button {
+      height: 46px;
+      padding: 0 14px;
+      border-radius: 14px;
+      font-size: 15px;
+      font-weight: 850;
+    }
+    .nav button.active {
+      box-shadow: inset 4px 0 0 var(--accent);
+      background: color-mix(in srgb, var(--accent) 16%, transparent);
+    }
+    .repo-list {
+      display: grid;
+      gap: 8px;
+    }
+    .repo-link {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 850;
+      padding: 6px 12px;
+    }
+    .repo-link::before {
+      content: "";
+      width: 11px;
+      height: 14px;
+      border: 1.5px solid currentColor;
+      border-radius: 2px;
+      opacity: .7;
+      flex: 0 0 auto;
+    }
+    .rail-block {
+      display: none;
+    }
+    .rail-bottom {
+      margin-top: auto;
+      display: grid;
+      gap: 16px;
+    }
+    .agent-health {
+      padding: 16px;
+      border-color: rgba(74, 222, 128, .24);
+      background: linear-gradient(180deg, rgba(34, 197, 94, .10), rgba(34, 197, 94, .045));
+    }
+    .agent-health-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      font-size: 14px;
+      font-weight: 900;
+    }
+    .agent-health p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      line-height: 1.35;
+      font-weight: 700;
+    }
+    .settings-link {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      text-align: left;
+      font-size: 17px;
+      font-weight: 850;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    .topbar {
+      min-height: 54px;
+      display: grid;
+      grid-template-columns: auto minmax(150px, 1fr) auto;
+      padding: 0 12px;
+      gap: 10px;
+      background: rgba(12, 18, 30, .72);
+    }
+    .topbar-title {
+      gap: 8px;
+    }
+    .breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+    .breadcrumbs strong {
+      color: var(--ink);
+    }
+    .search-box {
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--panel) 72%, transparent);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 11px;
+      color: var(--subtle);
+      min-width: 0;
+    }
+    .search-box input {
+      width: 100%;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--ink);
+      min-width: 0;
+    }
+    .search-icon {
+      width: 14px;
+      height: 14px;
+      border: 2px solid currentColor;
+      border-radius: 999px;
+      position: relative;
+      flex: 0 0 auto;
+    }
+    .search-icon::after {
+      content: "";
+      position: absolute;
+      right: -5px;
+      bottom: -4px;
+      width: 7px;
+      height: 2px;
+      border-radius: 999px;
+      background: currentColor;
+      transform: rotate(45deg);
+    }
+    .topbar-actions {
+      flex-wrap: nowrap;
+      justify-self: end;
+    }
+    .toolbar {
+      gap: 6px;
+      flex-wrap: nowrap;
+    }
+    .btn.primary-action {
+      border-color: transparent;
+      background: linear-gradient(135deg, #73a8ff, #4fd8e7);
+      color: #07111f;
+      box-shadow: 0 18px 44px rgba(79, 216, 231, .20);
+    }
+    #board {
+      overflow: auto;
+      padding: 14px 20px 18px;
+      gap: 10px;
+    }
+    .board-stats {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+    .board-stat {
+      min-height: 72px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 84% 100%, var(--stat-glow, rgba(96, 165, 250, .12)), transparent 42%),
+        linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, transparent), color-mix(in srgb, var(--panel-alt) 72%, transparent));
+      padding: 10px 11px;
+      overflow: hidden;
+    }
+    .board-stat-label {
+      color: var(--muted);
+      font-size: 9px;
+      font-weight: 900;
+      letter-spacing: .11em;
+      text-transform: uppercase;
+    }
+    .board-stat-value {
+      margin-top: 5px;
+      display: flex;
+      align-items: baseline;
+      gap: 5px;
+      font-size: 23px;
+      line-height: 1;
+      font-weight: 950;
+      letter-spacing: -.035em;
+    }
+    .board-stat-value small,
+    .board-stat-note {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 780;
+      letter-spacing: 0;
+    }
+    .board-stat-note {
+      margin-top: 5px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .board-workspace {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 380px;
+      gap: 16px;
+    }
+    .board-workspace.no-attention {
+      grid-template-columns: minmax(0, 1fr);
+    }
+    .board-workspace.no-attention .inspector-panel {
+      display: none;
+    }
+    .board-frame {
+      margin: 0;
+      padding: 14px;
+      min-height: 0;
+      box-shadow: var(--shadow);
+    }
+    .kanban {
+      min-height: 0;
+      gap: 12px;
+    }
+    .kanban-column {
+      border-radius: 15px;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--panel-alt) 78%, transparent), color-mix(in srgb, var(--panel) 68%, transparent));
+    }
+    .kanban-head {
+      min-height: 62px;
+      padding: 14px;
+    }
+    .kanban-body {
+      padding: 12px;
+      gap: 12px;
+      grid-auto-rows: auto;
+      overflow: auto;
+    }
+    .board-frame .kanban-body {
+      grid-auto-rows: max-content;
+    }
+    .work-card {
+      min-height: 86px;
+      padding: 12px 13px 11px 16px;
+      gap: 7px;
+      border-left-width: 5px;
+    }
+    .work-card-identity {
+      height: auto;
+      align-content: start;
+      padding-left: 0;
+      padding-right: 22px;
+      gap: 7px;
+    }
+    .work-card-identity-main {
+      font-size: 15px;
+    }
+    .work-card-cardmeta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 780;
+    }
+    .work-card-tagrow {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      min-width: 0;
+      margin-top: auto;
+    }
+    .work-card-tagrow:empty {
+      display: none;
+    }
+    .mini-tag {
+      min-height: 22px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(148, 163, 184, .10);
+      color: var(--muted);
+      padding: 0 8px;
+      font-size: 10px;
+      font-weight: 900;
+      max-width: 100%;
+    }
+    .mini-tag.warn {
+      color: #fed7aa;
+      border-color: rgba(251, 146, 60, .30);
+      background: rgba(251, 146, 60, .10);
+    }
+    .issue-row {
+      position: static;
+      box-shadow: none;
+      max-height: 126px;
+    }
+    .issue-row-body {
+      max-height: 82px;
+    }
+    .board-frame .issue-row {
+      flex: 0 0 auto;
+    }
+    .inspector-panel {
+      min-height: 0;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, transparent), color-mix(in srgb, var(--panel-alt) 78%, transparent));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    .inspector-head {
+      min-height: 82px;
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .inspector-kicker {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .inspector-reason {
+      margin-top: 12px;
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.38;
+    }
+    .inspector-target {
+      margin-top: 3px;
+      font-size: 16px;
+      font-weight: 950;
+      letter-spacing: -.03em;
+    }
+    .severity-pill {
+      min-height: 25px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 10px;
+      border-radius: 999px;
+      color: #fed7aa;
+      border: 1px solid rgba(251, 146, 60, .28);
+      background: rgba(251, 146, 60, .09);
+      font-size: 11px;
+      font-weight: 900;
+    }
+    .inspector-body {
+      padding: 18px;
+      overflow: auto;
+    }
+    .inspector-summary {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 70px;
+      gap: 16px;
+      align-items: center;
+    }
+    .inspector-title {
+      font-size: 19px;
+      line-height: 1.18;
+      font-weight: 950;
+      letter-spacing: -.045em;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .inspector-sub {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .detail-list {
+      margin: 18px 0;
+      display: grid;
+    }
+    .detail-row {
+      min-height: 46px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+    }
+    .detail-row:last-child {
+      border-bottom: 1px solid var(--line);
+    }
+    .detail-row strong {
+      color: var(--ink);
+      text-align: right;
+    }
+    .open-review-btn {
+      width: 100%;
+      min-height: 44px;
+      border: 0;
+      border-radius: 12px;
+      background: linear-gradient(135deg, #73a8ff, #4fd8e7);
+      color: #07111f;
+      display: grid;
+      place-items: center;
+      font-weight: 950;
+      box-shadow: 0 18px 44px rgba(79, 216, 231, .18);
+    }
+    .inspector-actions {
+      display: grid;
+      gap: 8px;
+    }
+    .inspector-actions.split {
+      grid-template-columns: 1fr 1fr;
+    }
+    .queue-review-btn {
+      cursor: pointer;
+    }
+    .queue-review-btn:disabled {
+      cursor: not-allowed;
+      opacity: .48;
+      filter: grayscale(.25);
+    }
+    .open-review-secondary {
+      background: transparent;
+      color: var(--ink);
+      border: 1px solid var(--line-strong);
+      box-shadow: none;
+      text-decoration: none;
+    }
+    .timeline {
+      margin-top: 22px;
+      display: grid;
+      gap: 16px;
+    }
+    .timeline-item {
+      display: grid;
+      grid-template-columns: 28px minmax(0, 1fr);
+      gap: 10px;
+    }
+    .timeline-num {
+      width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      color: var(--accent);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+      font-size: 11px;
+      font-weight: 950;
+    }
+    .timeline-item strong {
+      display: block;
+      font-size: 13px;
+      font-weight: 950;
+    }
+    .timeline-item span {
+      display: block;
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      font-weight: 720;
+    }
+
+    /* Refined type scale: keep the dense dashboard readable without shouting. */
+    .mark,
+    .mark {
+      font-weight: 720;
+    }
+    .brand h1,
+    .workspace-name,
+    .agent-health-head,
+    .settings-link {
+      font-weight: 680;
+      letter-spacing: -.01em;
+    }
+    .brand p,
+    .agent-health p,
+    .work-card-cardmeta,
+    .inspector-sub,
+    .timeline-item span {
+      font-weight: 500;
+    }
+    .workspace-label,
+    .nav-title,
+    .repo-title,
+    .rail-status-label,
+    .metric .label,
+    .board-stat-label,
+    .inspector-kicker {
+      font-weight: 620;
+      letter-spacing: .11em;
+    }
+    .nav button,
+    .repo-link,
+    .breadcrumbs,
+    .btn,
+    .target-link,
+    .job-indicator {
+      font-weight: 600;
+    }
+    .breadcrumbs strong,
+    .badge,
+    .mini-tag,
+    .live-pill,
+    .severity-pill,
+    .kanban-head,
+    .detail-row,
+    .timeline-item strong {
+      font-weight: 620;
+    }
+    .topbar h2,
+    .section-head h3,
+    .work-card-identity-main,
+    .inspector-target,
+    .inspector-title,
+    .detail-row strong,
+    .open-review-btn {
+      font-weight: 680;
+    }
+    .metric .value,
+    .board-stat-value,
+    .timeline-num {
+      font-weight: 740;
+    }
+    .board-stat-value small,
+    .board-stat-note {
+      font-weight: 500;
+    }
     @media (max-width: 900px) {
       html,
       body {
@@ -974,19 +2013,31 @@
         overflow-y: auto;
         overflow-x: hidden;
       }
-      .shell { grid-template-columns: 1fr; }
-      .rail { position: static; height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .shell {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: 100vh;
+      }
+      .rail {
+        position: static;
+        height: auto;
+        max-height: none;
+        overflow: visible;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
       main {
         width: 100%;
         max-width: 100vw;
         height: auto;
         min-height: auto;
         overflow: visible;
-        padding: 16px;
+        padding: 0;
       }
       .topbar {
         align-items: flex-start;
         flex-direction: column;
+        padding: 14px 16px;
       }
       .topbar-actions {
         justify-content: flex-start;
@@ -1002,7 +2053,26 @@
         max-width: 100%;
         overflow: visible;
       }
-      .grid { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+      .board-workspace {
+        grid-template-columns: 1fr;
+      }
+      .board-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .inspector-panel {
+        min-height: 520px;
+      }
+      .grid {
+        grid-template-columns: repeat(2, minmax(140px, 1fr));
+        margin: 16px;
+      }
+      .section-head,
+      .filter-row,
+      .panel,
+      .board-frame {
+        margin-left: 16px;
+        margin-right: 16px;
+      }
       .logline { grid-template-columns: 1fr; }
       .kanban {
         grid-template-columns: repeat(4, minmax(212px, 76vw));
@@ -1011,7 +2081,7 @@
         max-width: 100%;
         min-height: 520px;
         scroll-snap-type: x proximity;
-        padding-bottom: 2px;
+        padding: 0 0 2px;
       }
       .kanban-column {
         min-width: 212px;
@@ -1019,8 +2089,21 @@
         scroll-snap-align: start;
       }
       .kanban-body { overflow: hidden; }
-      .issue-row { position: static; }
+      .issue-row {
+        position: static;
+        margin-left: 0;
+        margin-right: 0;
+      }
       .issue-row-body { max-height: 160px; overflow: hidden; }
+      .draft-workspace {
+        height: auto;
+        min-height: calc(100vh - 54px);
+        grid-template-columns: 1fr;
+        overflow: auto;
+      }
+      .draft-pane {
+        min-height: 280px;
+      }
     }
     @media (prefers-reduced-motion: reduce) {
       *,
@@ -1041,20 +2124,32 @@
         <div class="brand">
           <div class="mark">M</div>
           <div>
-            <h1>A2A Runner</h1>
-            <p>Local control plane</p>
+            <h1>Moras Review</h1>
+            <p>Agent workflow board</p>
           </div>
         </div>
         <button class="btn icon-btn" id="sidebar-hide" aria-label="Hide sidebar" aria-expanded="true" aria-controls="sidebar" title="Hide sidebar"><span class="sidebar-icon" aria-hidden="true"></span></button>
       </div>
-      <div class="nav">
-        <button data-view="board" class="active">Board</button>
-        <button data-view="overview">Overview</button>
-        <button data-view="items">Issues & PRs</button>
-        <button data-view="changes">Changes</button>
-        <button data-view="jobs">Jobs</button>
-        <button data-view="deliveries">Deliveries</button>
-        <button data-view="tasks">Task Packages</button>
+      <div class="workspace-card">
+        <div class="workspace-label">Workspace</div>
+        <div class="workspace-name"><span>moras-studio</span><span class="live-pill">Live</span></div>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">Review Ops</div>
+        <div class="nav">
+          <button data-view="board" class="active">Board</button>
+          <button data-view="items">Pull requests</button>
+          <button data-view="drafts">Review drafts</button>
+          <button data-view="changes">Review requests</button>
+          <button data-view="jobs">Stale queue</button>
+        </div>
+      </div>
+      <div class="repo-section">
+        <div class="repo-title">Repositories</div>
+        <div class="repo-list">
+          <div class="repo-link">moras-brain</div>
+          <div class="repo-link">moras-agent</div>
+        </div>
       </div>
       <div class="rail-block">
         <div class="rail-status-row"><span class="rail-status-label">Runtime</span><code id="runtime">-</code></div>
@@ -1062,48 +2157,58 @@
         <div class="rail-status-row"><span class="rail-status-label">Webhook</span><code id="webhook-url">-</code></div>
         <div class="rail-status-row"><span class="rail-status-label">Ngrok</span><code id="ngrok-url">-</code></div>
       </div>
+      <div class="rail-bottom">
+        <div class="agent-health">
+          <div class="agent-health-head"><span>Agent health</span><span class="live-pill">98%</span></div>
+          <p id="agent-health-text">Last sync completed recently. No degraded services.</p>
+        </div>
+        <button class="settings-link" type="button">Settings</button>
+      </div>
     </aside>
     <main>
       <div class="topbar">
         <div class="topbar-title">
           <button class="btn icon-btn sidebar-reveal hidden" id="sidebar-reveal" aria-label="Show sidebar" aria-expanded="false" aria-controls="sidebar" title="Show sidebar"><span class="sidebar-icon" aria-hidden="true"></span></button>
-          <div>
-            <h2 id="view-title">Board</h2>
-            <div class="muted" id="last-refresh">Not loaded</div>
-          </div>
+          <div class="breadcrumbs"><span>Moras</span><span>/</span><strong id="view-title">Board</strong></div>
         </div>
+        <label class="search-box" aria-label="Search work items">
+          <span class="search-icon" aria-hidden="true"></span>
+          <input id="board-search" type="search" placeholder="Search..." autocomplete="off">
+        </label>
         <div class="topbar-actions">
           <div class="toolbar" id="toolbar">
-            <button class="btn theme-toggle" id="theme-toggle">Dark</button>
+            <button class="btn icon-btn theme-toggle" id="theme-toggle" title="Toggle theme">Dark</button>
+            <label class="monitor-switch" id="monitor-switch" title="Start or pause scheduled monitoring">
+              <input type="checkbox" id="monitor-toggle" checked>
+              <span class="monitor-switch-track" aria-hidden="true"></span>
+              <span class="monitor-switch-text" id="monitor-switch-text">Monitoring</span>
+            </label>
             <button class="btn" id="refresh">Refresh</button>
-            <button class="btn" id="monitor-once">Monitor Once</button>
-            <button class="btn danger" id="sync-reviews">Sync Review Requests</button>
+            <button class="btn" id="monitor-once">Scan</button>
           </div>
         </div>
       </div>
 
       <section id="board" class="view">
-        <div class="section-head"><h3>Work Board</h3></div>
-        <div class="filter-row">
-          <div class="filter-group">
-            <span class="filter-label">Scope</span>
-            <div class="tabs">
-              <button data-board-relation-filter="related" class="active">Related</button>
-              <button data-board-relation-filter="created">Created</button>
-              <button data-board-relation-filter="assigned">Assigned</button>
-              <button data-board-relation-filter="review_requested">Review</button>
-              <button data-board-relation-filter="participating">Participating</button>
-              <button data-board-relation-filter="">All</button>
+        <div class="board-stats">
+          <div class="board-stat" style="--stat-glow: rgba(96, 165, 250, .16)"><div class="board-stat-label">Total PRs</div><div class="board-stat-value"><span id="stat-total-prs">0</span><small>active</small></div><div class="board-stat-note" id="stat-total-prs-note">0 waiting in WIP</div></div>
+          <div class="board-stat" style="--stat-glow: rgba(251, 146, 60, .14)"><div class="board-stat-label">Reviewing</div><div class="board-stat-value"><span id="stat-reviewing">0</span><small>in progress</small></div><div class="board-stat-note" id="stat-reviewing-note">No active review load</div></div>
+          <div class="board-stat" style="--stat-glow: rgba(74, 222, 128, .16)"><div class="board-stat-label">Reviewed</div><div class="board-stat-value"><span id="stat-reviewed">0</span><small>done</small></div><div class="board-stat-note">Ready for merge checks</div></div>
+          <div class="board-stat" style="--stat-glow: rgba(251, 113, 133, .13)"><div class="board-stat-label">Issues</div><div class="board-stat-value"><span id="stat-issues">0</span><small>open</small></div><div class="board-stat-note" id="stat-issues-note">No visible backlog</div></div>
+          <div class="board-stat" style="--stat-glow: rgba(167, 139, 250, .14)"><div class="board-stat-label">Median Age</div><div class="board-stat-value"><span id="stat-age">-</span><small>queue</small></div><div class="board-stat-note">Healthy review cycle</div></div>
+        </div>
+        <div class="board-workspace">
+          <div class="board-frame">
+            <div class="kanban" id="kanban-board"></div>
+            <div class="issue-row">
+              <div class="issue-row-head">
+                <div class="issue-row-title"><span>Issues</span><span class="badge" id="kanban-issues-count">0</span></div>
+                <button class="btn issue-scan-btn" id="scan-stale-issues">Scan Stale</button>
+              </div>
+              <div class="issue-row-body" id="kanban-issues"></div>
             </div>
           </div>
-        </div>
-        <div class="kanban" id="kanban-board"></div>
-        <div class="issue-row">
-          <div class="issue-row-head">
-            <div class="issue-row-title"><span>Issues</span><span class="badge" id="kanban-issues-count">0</span></div>
-            <button class="btn issue-scan-btn" id="scan-stale-issues">Scan Stale</button>
-          </div>
-          <div class="issue-row-body" id="kanban-issues"></div>
+          <aside class="inspector-panel" id="board-inspector"></aside>
         </div>
       </section>
 
@@ -1165,11 +2270,50 @@
       <section id="jobs" class="view hidden"><div class="panel" id="jobs-table"></div></section>
       <section id="deliveries" class="view hidden"><div class="panel" id="deliveries-table"></div></section>
       <section id="tasks" class="view hidden"><div class="panel" id="tasks-table"></div></section>
+      <section id="drafts" class="view hidden">
+        <div class="draft-workspace">
+          <aside class="draft-pane">
+            <div class="draft-pane-head">
+              <div>
+                <div class="draft-pane-kicker">Local Packages</div>
+                <div class="draft-pane-title">Review drafts</div>
+              </div>
+              <button class="btn" id="draft-refresh">Refresh</button>
+            </div>
+            <div class="draft-list" id="draft-list"></div>
+          </aside>
+          <section class="draft-pane">
+            <div class="draft-pane-head">
+              <div>
+                <div class="draft-pane-kicker">Editable Comment</div>
+                <div class="draft-pane-title" id="draft-editor-title">Select a draft</div>
+              </div>
+              <span id="draft-post-state" class="badge">-</span>
+            </div>
+            <div class="draft-meta" id="draft-meta"></div>
+            <textarea class="draft-editor" id="draft-editor" spellcheck="false" placeholder="Select a review draft to edit its suggested comment."></textarea>
+            <div class="draft-actions">
+              <button class="btn" id="draft-reload">Reload</button>
+              <button class="btn" id="draft-save">Save</button>
+              <button class="btn primary" id="draft-post">Post approved comment</button>
+            </div>
+          </section>
+          <section class="draft-pane">
+            <div class="draft-pane-head">
+              <div>
+                <div class="draft-pane-kicker">Exact Gitea Body</div>
+                <div class="draft-pane-title">Preview</div>
+              </div>
+            </div>
+            <pre class="draft-preview" id="draft-preview">Select a draft to preview the posted comment.</pre>
+          </section>
+        </div>
+      </section>
     </main>
   </div>
   <div class="toast" id="toast"></div>
   <script>
-    const state = { view: "board", itemFilter: "", stateFilter: "open", relationFilter: "", boardRelationFilter: "related", userNames: [] };
+    const state = { view: "board", itemFilter: "", stateFilter: "open", relationFilter: "", boardRelationFilter: "related", userNames: [], tasks: [], selectedDraftTask: "", draftDirty: false, draftLoadSeq: 0, draftLoading: false };
     const boardColumns = [
       {id:"wip", title:"WIP"},
       {id:"under_review", title:"Under Review"},
@@ -1200,6 +2344,22 @@
       localStorage.setItem("a2a-runner-sidebar-collapsed", collapsed ? "1" : "0");
       requestAnimationFrame(fitKanbanToWindow);
     }
+    function applyMonitoringState(monitoring) {
+      const enabled = !monitoring || monitoring.enabled !== false;
+      const controllable = !monitoring || monitoring.controllable !== false;
+      const toggle = $("monitor-toggle");
+      const wrapper = $("monitor-switch");
+      const label = $("monitor-switch-text");
+      if (!toggle || !wrapper || !label) return;
+      toggle.checked = enabled;
+      toggle.disabled = !controllable;
+      wrapper.classList.toggle("paused", !enabled);
+      wrapper.classList.toggle("disabled", !controllable);
+      label.textContent = enabled ? "Monitoring" : "Paused";
+      wrapper.title = controllable
+        ? (enabled ? "Scheduled discovery and PR monitoring are running" : "Scheduled discovery and PR monitoring are paused")
+        : "Monitoring can only be controlled from the all-in-one backend";
+    }
     applyTheme(preferredTheme());
     applySidebarCollapsed(preferredSidebarCollapsed());
     const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -1207,17 +2367,28 @@
       const text = String(value ?? "").toLowerCase();
       if (["done", "open", "ok", "succeeded", "posted", "merged", "reviewed", "fixed"].includes(text)) return "ok";
       if (["failed", "closed", "unauthorized", "hard handoff", "auto failed", "easy blocked", "stale failed"].includes(text)) return "bad";
-      if (["queued", "running", "ignored", "duplicate", "local", "stale", "draft", "plan review", "easy direct", "assign", "assigned", "assess", "no action"].includes(text)) return "warn";
+      if (["queued", "running", "ignored", "duplicate", "local", "stale", "draft", "plan review", "easy direct", "assign", "assigned", "assess", "no action", "needs_human_review"].includes(text)) return "warn";
       return "";
     };
     const badge = (value) => `<span class="badge ${badgeClass(value)}">${esc(value || "-")}</span>`;
     const marker = (type) => type === "pull_request" ? "PR" : "issue";
+    const taskMarker = (task) => task.item_type === "pull_request" ? "PR" : "Issue";
+    const taskTarget = (task) => `${repoShortName(task.repo)} ${taskMarker(task)}#${task.target_index || "?"}`;
     const itemHref = (item) => item.url ? `<a class="target-link" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(marker(item.item_type))}#${esc(item.number)}</a>` : `${esc(marker(item.item_type))}#${esc(item.number)}`;
     const titleHref = (item) => item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.title || "(untitled)")}</a>` : esc(item.title || "(untitled)");
     const relationBadges = (item) => {
       const labels = item.relationship_labels || [];
       if (!labels.length) return '<span class="muted">-</span>';
       return `<div class="relation-list">${labels.map(label => `<span class="badge rel-${esc(label)}">${esc(label)}</span>`).join("")}</div>`;
+    };
+    const cardRelationLabel = (item) => {
+      const rel = item.relationships || {};
+      if (rel.created_by_me) return "created by me";
+      if (rel.review_requested_from_me) return "review requested";
+      if (rel.assigned_to_me) return "assigned to me";
+      if (rel.participating) return "participating";
+      if (rel.related_to_me) return "related";
+      return "tracked";
     };
     const reviewBadge = (item) => {
       if (item.item_type !== "pull_request") return '<span class="muted">-</span>';
@@ -1252,9 +2423,22 @@
       const job = item.job_status || {};
       if (!job.active && !job.recent) return "";
       const status = String(job.status || "").toLowerCase();
-      const label = status === "running" ? "AI running" : status === "queued" ? "AI queued" : status === "failed" ? "AI failed" : `AI ${status || "job"}`;
+      const statusClass = ["done", "completed", "succeeded", "success"].includes(status) ? "done" : (status || "queued");
+      const label = status === "running"
+        ? "AI running"
+        : status === "queued"
+          ? "AI queued"
+          : status === "failed"
+            ? "AI failed"
+            : status === "needs_human_review"
+              ? "AI needs review"
+              : status === "stale"
+                ? "AI stale"
+                : statusClass === "done"
+                  ? "AI completed"
+                  : `AI ${status || "job"}`;
       const title = `${job.kind_label || "AI job"} ${status || "active"}${job.updated_at ? ` · ${job.updated_at}` : ""}`;
-      return `<span class="job-indicator ${esc(status || "queued")}" title="${esc(title)}" aria-label="${esc(title)}"><span class="job-dot" aria-hidden="true"></span><span class="job-text">${esc(label)}</span></span>`;
+      return `<span class="job-indicator ${esc(statusClass)}" title="${esc(title)}" aria-label="${esc(title)}"><span class="job-dot" aria-hidden="true"></span><span class="job-text">${esc(label)}</span></span>`;
     };
     const jobStatusCell = (item) => jobStatusIcon(item) || '<span class="muted">-</span>';
     const userMatchesName = (name) => {
@@ -1283,11 +2467,14 @@
       const job = item.job_status || {};
       const jobStatus = String(job.status || "").toLowerCase();
       if (jobStatus === "failed") return "AI job failed";
+      if (jobStatus === "needs_human_review") return "AI review needs human attention";
+      if (jobStatus === "stale") return "AI review is stale";
       if (job.active) return "";
       if (item.item_type === "issue" && review.human_attention) return review.attention_reason || "Issue needs human attention";
       if (review.stale) return "Review is stale";
       if (review.current_head_failed) return "Current-head review failed";
       if (item.item_type === "pull_request" && rel.created_by_me && latestExternalInteraction(item)) return "Your PR has external feedback";
+      if (item.item_type === "pull_request" && (rel.review_requested_from_me || rel.assigned_to_me) && (item.pr_review_action || {}).available) return "Review requested from you";
       if (item.item_type === "issue" && item.snapshot && item.snapshot.has_open_linked_pr) return "";
       if (item.item_type === "issue" && item.snapshot && item.snapshot.resolved_by_merged_prs) return "";
       if (item.item_type === "issue" && rel.assigned_to_me && !job.active) return "Issue assigned to you";
@@ -1380,16 +2567,24 @@
     };
     const boardVisibleItems = (items, indexes) => {
       const active = items.filter(i => i.state === "open");
-      if (!state.boardRelationFilter) return active;
+      const query = String((document.getElementById("board-search") || {}).value || "").trim().toLowerCase();
+      const searched = query ? active.filter(item => [
+        item.repo,
+        item.title,
+        item.author,
+        item.number,
+        (item.snapshot && item.snapshot.head) || ""
+      ].some(value => String(value || "").toLowerCase().includes(query))) : active;
+      if (!state.boardRelationFilter) return searched;
       const included = new Set();
-      for (const item of active) {
+      for (const item of searched) {
         if (!relationshipMatches(item, state.boardRelationFilter)) continue;
         included.add(itemKey(item));
         if (state.boardRelationFilter === "related") {
           for (const linked of linkedItemsForBoard(item, indexes)) included.add(itemKey(linked));
         }
       }
-      return active.filter(item => included.has(itemKey(item)));
+      return searched.filter(item => included.has(itemKey(item)));
     };
     const issueHasTrackedPr = (item, indexes) => (
       linkedItemsForBoard(item, indexes).some(linked => linked.item_type === "pull_request") ||
@@ -1422,26 +2617,131 @@
     };
     const prCardIdentity = (item) => {
       const repo = repoShortName(item.repo);
-      const creator = shortUser(item.author || "-");
-      const label = `${repo} / ${creator} / PR#${item.number}`;
+      const label = `${repo} / PR#${item.number}`;
+      const reviewFlag = prReviewFlag(item);
       const content = `<div class="work-card-identity-main" title="${esc(item.repo || repo)}">${esc(repo)}</div>
-        <div class="work-card-identity-sub"><span class="work-card-creator" title="${esc(item.author || "")}">${esc(creator)}</span><span class="meta-sep">/</span><span class="work-card-pr-number">PR#${esc(item.number)}</span></div>`;
+        <div class="work-card-identity-sub"><span class="work-card-pr-number">PR#${esc(item.number)}</span>${reviewFlag}</div>`;
       return item.url
         ? `<a href="${esc(item.url)}" target="_blank" rel="noreferrer" aria-label="${esc(label)}" title="${esc(item.title || label)}">${content}</a>`
         : content;
     };
-    const workCard = (item) => `<div class="work-card ${cardRelationClass(item)}${attentionClass(item)}" title="${esc(item.title || "")}">
-      <div class="work-card-job">${jobStatusIcon(item)}</div>
+    const formatAge = (value) => {
+      const raw = String(value || "");
+      if (!raw) return "";
+      const time = Date.parse(raw.includes("T") ? raw : raw.replace(" ", "T"));
+      if (!Number.isFinite(time)) return "";
+      const minutes = Math.max(0, Math.floor((Date.now() - time) / 60000));
+      if (minutes < 60) return `${minutes}m`;
+      const hours = Math.floor(minutes / 60);
+      const rem = minutes % 60;
+      if (hours < 24) return rem ? `${hours}h ${rem}m` : `${hours}h`;
+      return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+    };
+    const itemAgeMinutes = (item) => {
+      const raw = String((item.snapshot && item.snapshot.updated) || item.changed_at || "");
+      const time = Date.parse(raw.includes("T") ? raw : raw.replace(" ", "T"));
+      return Number.isFinite(time) ? Math.max(0, Math.floor((Date.now() - time) / 60000)) : 0;
+    };
+    const priorityTags = (item) => {
+      const tags = [];
+      const review = item.review_status || {};
+      if (review.stale) tags.push(["stale risk", "warn"]);
+      if (attentionNeeded(item)) tags.push(["needs eyes", "warn"]);
+      return tags.slice(0, 2).map(([label, cls]) => `<span class="mini-tag ${cls}">${esc(label)}</span>`).join("");
+    };
+    const prReviewFlag = (item) => {
+      const review = item.review_status || {};
+      if (review.reviewed && !review.stale) {
+        const decision = String(review.review_decision || "").toLowerCase();
+        const label = decision === "approved" ? "approved" : "reviewed";
+        return `<span class="work-card-review-flag ${esc(decision === "approved" ? "approved" : "reviewed")}">${esc(label)}</span>`;
+      }
+      return "";
+    };
+    const workCard = (item) => {
+      const jobIcon = jobStatusIcon(item);
+      return `<div class="work-card ${cardRelationClass(item)}${jobIcon ? " has-job" : ""}${attentionClass(item)}" title="${esc(item.title || "")}">
+      <div class="work-card-job">${jobIcon}</div>
       <div class="work-card-identity">${prCardIdentity(item)}</div>
+      <div class="work-card-cardmeta"><span>${esc(shortUser(item.author || "-"))}</span><span>${esc(formatAge((item.snapshot && item.snapshot.updated) || item.changed_at) || "new")}</span></div>
+      <div class="work-card-tagrow">${priorityTags(item)}</div>
     </div>`;
+    };
     const issueCard = (item) => `<div class="issue-card ${cardRelationClass(item)}${attentionClass(item)}">
       <div class="work-card-meta">${itemHref(item)} ${issueTriageBadge(item)} ${jobStatusIcon(item)} ${attentionBadge(item)}</div>
       <div class="issue-card-title">${titleHref(item)}</div>
     </div>`;
+    const attentionPriority = (item) => {
+      const reason = attentionReason(item);
+      if (!reason) return -1;
+      if (/failed/i.test(reason)) return 100;
+      if (/review requested/i.test(reason)) return 95;
+      if (/external feedback/i.test(reason)) return 90;
+      if (/stale|current-head/i.test(reason)) return 80;
+      if (item.item_type === "issue") return 70;
+      return 60;
+    };
+    const pickAttentionItem = (items) => items
+      .filter(attentionNeeded)
+      .sort((a, b) => {
+        const priority = attentionPriority(b) - attentionPriority(a);
+        if (priority) return priority;
+        return itemAgeMinutes(b) - itemAgeMinutes(a);
+      })[0] || null;
+    const attentionInspector = (item) => {
+      const snapshot = item.snapshot || {};
+      const review = item.review_status || {};
+      const reason = attentionReason(item);
+      const age = formatAge(snapshot.updated || item.changed_at) || "new";
+      const typeLabel = item.item_type === "pull_request" ? "PR" : "Issue";
+      const targetLabel = `${repoShortName(item.repo)} · ${typeLabel}#${item.number}`;
+      const actor = item.author ? shortUser(item.author) : "-";
+      const stateLabel = review.label || item.state || "open";
+      const latest = latestExternalInteraction(item);
+      const latestText = latest
+        ? `${esc(shortUser(latest.actor))} commented ${esc(formatAge(latest.updated || latest.created) || "recently")}`
+        : "No external feedback detail";
+      const reviewAction = item.pr_review_action || {};
+      const canQueueReview = item.item_type === "pull_request" && reviewAction.available;
+      const actionText = canQueueReview
+        ? "Start an AI review when you are ready."
+        : item.item_type === "pull_request" && (item.relationships || {}).created_by_me
+        ? "Review the feedback before the agent replies."
+        : item.item_type === "issue"
+          ? "Decide whether to assign, scope, or hand off this issue."
+          : "Review the PR or rerun the agent job if needed.";
+      const openLabel = item.item_type === "pull_request" ? "Open PR" : "Open issue";
+      const actionButtons = canQueueReview
+        ? `<div class="inspector-actions split">
+            <button class="open-review-btn queue-review-btn" type="button" data-queue-pr-review="${esc(item.repo)}#${esc(item.number)}">Start AI review</button>
+            ${item.url ? `<a class="open-review-btn open-review-secondary" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(openLabel)}</a>` : ""}
+          </div>`
+        : `<div class="inspector-actions">${item.url ? `<a class="open-review-btn" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(openLabel)}</a>` : `<div class="open-review-btn">${esc(openLabel)}</div>`}</div>`;
+      return `<div class="inspector-head">
+          <div><div class="inspector-kicker">Needs Attention</div><div class="inspector-target">${esc(targetLabel)}</div></div>
+          <span class="severity-pill">${esc(typeLabel)}</span>
+        </div>
+        <div class="inspector-body">
+          <div class="inspector-title">${esc(item.title || "(untitled)")}</div>
+          <div class="inspector-sub">${esc(actor)} · ${esc(age)} in queue</div>
+          <div class="inspector-reason">${esc(reason)}</div>
+          <div class="detail-list">
+            <div class="detail-row"><span>State</span><strong>${esc(stateLabel)}</strong></div>
+            <div class="detail-row"><span>Relation</span><strong>${esc(cardRelationLabel(item))}</strong></div>
+            <div class="detail-row"><span>Latest signal</span><strong>${latestText}</strong></div>
+            <div class="detail-row"><span>Next action</span><strong>${esc(actionText)}</strong></div>
+          </div>
+          ${actionButtons}
+        </div>`;
+    };
     function fitKanbanToWindow() {
       const board = $("board");
       const kanban = $("kanban-board");
       if (!board || !kanban || board.classList.contains("hidden")) return;
+      if (document.querySelector(".board-workspace")) {
+        board.classList.remove("density-micro", "density-compact");
+        return;
+      }
       const bodies = [...kanban.querySelectorAll(".kanban-body")];
       const cardCounts = bodies.map(body => [...body.children].filter(child => child.classList.contains("work-card")).length);
       const maxCards = Math.max(1, ...cardCounts);
@@ -1502,10 +2802,14 @@
         node.title = title || value || "-";
       };
       const repos = data.config.monitor_repos || [];
-      const monitorSummary = `workers ${data.config.worker_count} · ${data.config.discovery_poll_seconds}s/${data.config.active_pr_poll_seconds}s · ${repos.length} repos`;
-      const monitorTitle = `workers ${data.config.worker_count} · discovery ${data.config.discovery_poll_seconds}s · active PR ${data.config.active_pr_poll_seconds}s · ${repos.join(",") || "-"}`;
+      const pollInterval = data.config.poll_interval_seconds || data.config.monitor_seconds || data.config.discovery_poll_seconds || 60;
+      const monitorSummary = `workers ${data.config.worker_count} · ${pollInterval}s · ${repos.length} repos`;
+      const monitorTitle = `workers ${data.config.worker_count} · unified poll ${pollInterval}s · ${repos.join(",") || "-"}`;
       setStatusValue("runtime", data.config.runtime || "-");
-      setStatusValue("monitor", monitorSummary, monitorTitle);
+      const monitoring = data.monitoring || {};
+      const monitorPrefix = monitoring.enabled === false ? "paused · " : "";
+      setStatusValue("monitor", `${monitorPrefix}${monitorSummary}`, monitorTitle);
+      applyMonitoringState(monitoring);
       setStatusValue("webhook-url", data.config.webhook_url || "-");
       setStatusValue("ngrok-url", data.config.ngrok_public_url ? `${data.config.ngrok_public_url}/gitea` : "-");
       $("metric-prs").textContent = data.counts.tracked_open.pull_request || 0;
@@ -1513,7 +2817,8 @@
       $("metric-jobs").textContent = data.counts.jobs.done || 0;
       $("metric-jobs-sub").textContent = Object.entries(data.counts.jobs).map(([k,v]) => `${k}:${v}`).join("  ") || "No jobs";
       $("metric-last").textContent = data.counts.latest_tracked_event_at || "-";
-      $("last-refresh").textContent = `Updated ${new Date().toLocaleTimeString()}`;
+      const health = $("agent-health-text");
+      if (health) health.textContent = `Last sync completed at ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}. No degraded services.`;
     }
     async function loadChanges() {
       const params = new URLSearchParams({limit: "80"});
@@ -1566,6 +2871,26 @@
         const col = boardColumnFor(item);
         if (groups[col]) groups[col].push(item);
       }
+      const totalPrs = prItems.length;
+      const reviewing = (groups.reviewing || []).length;
+      const reviewed = (groups.reviewed || []).length;
+      const wip = (groups.wip || []).length;
+      const ages = prItems.map(itemAgeMinutes).filter(value => value > 0).sort((a, b) => a - b);
+      const medianMinutes = ages.length ? ages[Math.floor(ages.length / 2)] : 0;
+      const attentionItem = pickAttentionItem([...prItems, ...issueItems]);
+      const setText = (id, value) => { const node = $(id); if (node) node.textContent = value; };
+      setText("stat-total-prs", totalPrs);
+      setText("stat-total-prs-note", `${wip} waiting in WIP`);
+      setText("stat-reviewing", reviewing);
+      setText("stat-reviewing-note", reviewing ? `${reviewing} assigned to active review` : "No active review load");
+      setText("stat-reviewed", reviewed);
+      setText("stat-issues", issueItems.length);
+      setText("stat-issues-note", `${issueItems.filter(item => (item.snapshot && (item.snapshot.labels || []).length)).length} proposal, ${Math.max(0, issueItems.length - 1)} backlog`);
+      setText("stat-age", medianMinutes ? formatAge(new Date(Date.now() - medianMinutes * 60000).toISOString()) : "-");
+      const workspace = document.querySelector(".board-workspace");
+      if (workspace) workspace.classList.toggle("no-attention", !attentionItem);
+      const inspector = $("board-inspector");
+      if (inspector) inspector.innerHTML = attentionItem ? attentionInspector(attentionItem) : "";
       $("kanban-board").innerHTML = boardColumns.map(col => {
         const items = groups[col.id] || [];
         return `<section class="kanban-column lane-${esc(col.id)}">
@@ -1575,18 +2900,61 @@
       }).join("");
       $("kanban-issues-count").textContent = issueItems.length;
       $("kanban-issues").innerHTML = issueItems.length ? issueItems.map(item => issueCard(item)).join("") : '<div class="empty">No issues</div>';
+      bindQueueReviewButtons();
       requestAnimationFrame(fitKanbanToWindow);
     }
+    function bindQueueReviewButtons() {
+      document.querySelectorAll("[data-queue-pr-review]").forEach(btn => {
+        if (btn.dataset.bound === "1") return;
+        btn.dataset.bound = "1";
+        btn.addEventListener("click", async () => {
+          const raw = btn.dataset.queuePrReview || "";
+          const splitAt = raw.lastIndexOf("#");
+          const repo = raw.slice(0, splitAt);
+          const number = Number(raw.slice(splitAt + 1));
+          if (!repo || !number) return;
+          btn.disabled = true;
+          const original = btn.textContent;
+          btn.textContent = "Queueing...";
+          try {
+            const data = await api("/api/pr-review/queue", {
+              method:"POST",
+              headers:{"Content-Type":"application/json"},
+              body:JSON.stringify({repo, number})
+            });
+            toast(data.status === "queued" ? "PR review queued" : (data.reason || data.status || "Review request updated"));
+            await Promise.all([loadBoard(), loadJobs(), loadDeliveries()]);
+          } catch (err) {
+            toast(err.message);
+            btn.disabled = false;
+            btn.textContent = original;
+          }
+        });
+      });
+    }
+    const jobTarget = (job) => {
+      const key = String(job.dedupe_key || "");
+      const kind = String(job.kind || "");
+      const base = key.split("@", 1)[0].split(":", 1)[0].replace("#stale-", "#");
+      const match = base.match(/#(?:pr-|issue-)?(\d+)$/);
+      const number = match ? match[1] : "";
+      const label = kind === "pr_review" ? `PR#${number || "?"}` : `Issue#${number || "?"}`;
+      const repo = base.includes("#") ? base.split("#")[0] : "";
+      const text = repo ? `${repoShortName(repo)} ${label}` : label;
+      return job.source_url
+        ? `<a class="target-link" href="${esc(job.source_url)}" target="_blank" rel="noreferrer" title="${esc(key)}">${esc(text)}</a>`
+        : `<span class="target-link" title="${esc(key)}">${esc(text)}</span>`;
+    };
     async function loadJobs() {
       const data = await api("/api/jobs?limit=80");
       const rows = data.jobs.map(j => `<tr>
         <td class="mono" style="width:150px">${esc(j.created_at)}</td>
+        <td style="width:150px">${jobTarget(j)}</td>
         <td style="width:90px">${badge(j.status)}</td>
-        <td style="width:95px">${esc(j.kind)}</td>
-        <td class="mono">${esc(j.dedupe_key)}</td>
+        <td style="width:125px">${esc(j.kind_label || j.kind)}</td>
         <td style="width:70px">${esc(j.retry_count)}</td>
       </tr>`);
-      $("jobs-table").innerHTML = table([{t:"Created",w:"150px"},{t:"Status",w:"90px"},{t:"Kind",w:"95px"},{t:"Key"},{t:"Retry",w:"70px"}], rows, "No jobs");
+      $("jobs-table").innerHTML = table([{t:"Created",w:"150px"},{t:"Target",w:"150px"},{t:"Status",w:"90px"},{t:"Kind",w:"125px"},{t:"Retry",w:"70px"}], rows, "No jobs");
     }
     async function loadDeliveries() {
       const data = await api("/api/deliveries?limit=80");
@@ -1601,6 +2969,7 @@
     }
     async function loadTasks() {
       const data = await api("/api/tasks?limit=80");
+      state.tasks = data.tasks || [];
       const rows = data.tasks.map(t => `<tr>
         <td class="mono" style="width:150px">${esc(t.created_at)}</td>
         <td style="width:95px">${badge(t.item_type === "pull_request" ? "PR" : "issue")}</td>
@@ -1610,6 +2979,155 @@
         <td style="width:75px">${t.posted ? badge("posted") : badge("local")}</td>
       </tr>`);
       $("tasks-table").innerHTML = table([{t:"Created",w:"150px"},{t:"Type",w:"95px"},{t:"Target",w:"105px"},{t:"Title"},{t:"Runtime",w:"90px"},{t:"Post",w:"75px"}], rows, "No task packages");
+      renderDraftList();
+    }
+    const draftCandidates = () => (state.tasks || []).filter(t => !t.posted && (t.review_path || t.task_id));
+    const draftByTaskId = (taskId) => draftCandidates().find(t => t.task_id === taskId) || null;
+    const draftTaskRef = (taskId) => {
+      const draft = draftByTaskId(taskId);
+      return (draft && (draft.task_dir || draft.task_id)) || taskId || "";
+    };
+    const clearDraftPane = (message = "No unposted review drafts.") => {
+      state.selectedDraftTask = "";
+      state.draftDirty = false;
+      $("draft-editor-title").textContent = "Select a draft";
+      $("draft-post-state").outerHTML = '<span id="draft-post-state" class="badge">-</span>';
+      $("draft-meta").innerHTML = "";
+      $("draft-editor").value = "";
+      $("draft-preview").textContent = message;
+      setDraftButtons(true);
+    };
+    const renderDraftList = () => {
+      const list = $("draft-list");
+      if (!list) return;
+      const drafts = draftCandidates();
+      if (!drafts.length) {
+        list.innerHTML = '<div class="draft-empty"><div><strong>No local drafts</strong><span>Run a review job to create a package.</span></div></div>';
+        clearDraftPane();
+        return;
+      }
+      if (!state.selectedDraftTask || !drafts.some(t => t.task_id === state.selectedDraftTask)) {
+        state.selectedDraftTask = drafts[0].task_id;
+      }
+      list.innerHTML = drafts.map(t => `<button class="draft-item ${t.task_id === state.selectedDraftTask ? "active" : ""}" type="button" data-draft-task="${esc(t.task_id)}" data-draft-ref="${esc(t.task_dir || t.task_id)}">
+        <div class="draft-item-line"><span class="draft-target">${esc(taskTarget(t))}</span>${t.posted ? badge("posted") : badge(t.runtime_status || "local")}</div>
+        <div class="draft-title">${esc(t.title || t.task_id)}</div>
+      </button>`).join("");
+      bindDraftList();
+    };
+    const bindDraftList = () => {
+      document.querySelectorAll("[data-draft-task]").forEach(btn => {
+        if (btn.dataset.bound === "1") return;
+        btn.dataset.bound = "1";
+        btn.addEventListener("click", async () => {
+          if (state.draftDirty && !confirm("Discard unsaved comment edits?")) return;
+          const taskId = btn.dataset.draftTask || "";
+          if (!taskId) return;
+          state.selectedDraftTask = taskId;
+          state.draftDirty = false;
+          renderDraftList();
+          await loadDraft(btn.dataset.draftRef || draftTaskRef(taskId));
+        });
+      });
+    };
+    const selectedDraftRef = () => {
+      if (state.selectedDraftTask) return draftTaskRef(state.selectedDraftTask);
+      const first = draftCandidates()[0] || {};
+      return first.task_dir || first.task_id || "";
+    };
+    async function loadDraft(taskRef) {
+      if (!taskRef) {
+        clearDraftPane();
+        return;
+      }
+      const seq = ++state.draftLoadSeq;
+      state.draftLoading = true;
+      setDraftButtons(true);
+      $("draft-editor-title").textContent = "Loading draft";
+      $("draft-post-state").outerHTML = '<span id="draft-post-state" class="badge">loading</span>';
+      $("draft-meta").innerHTML = "";
+      $("draft-editor").value = "";
+      $("draft-preview").textContent = "Loading draft...";
+      try {
+        const data = await api(`/api/task-review?task=${encodeURIComponent(taskRef)}`);
+        if (seq !== state.draftLoadSeq) return;
+        const task = data.task || {};
+        state.selectedDraftTask = task.task_id || taskRef;
+        state.draftDirty = false;
+        renderDraftList();
+        $("draft-editor-title").textContent = `${repoShortName(task.repo)} ${task.item_type === "pull_request" ? "PR" : "Issue"}#${task.target || "?"}`;
+        $("draft-post-state").outerHTML = badge(task.posted ? "posted" : (task.runtime_status || "local")).replace("<span", '<span id="draft-post-state"');
+        $("draft-meta").innerHTML = `
+          <div class="draft-meta-row"><span>Title</span><strong title="${esc(task.title || "")}">${esc(task.title || "(untitled)")}</strong></div>
+          <div class="draft-meta-row"><span>Task</span><strong title="${esc(task.task_dir || "")}">${esc(task.task_id || "")}</strong></div>
+          <div class="draft-meta-row"><span>Reason</span><strong title="${esc(task.post_skipped_reason || "")}">${esc(task.post_skipped_reason || "ready for review")}</strong></div>
+        `;
+        $("draft-editor").value = task.suggested_comment || "";
+        $("draft-preview").textContent = task.comment_body || "";
+        setDraftButtons(false);
+      } catch (err) {
+        if (seq === state.draftLoadSeq) {
+          $("draft-preview").textContent = `Failed to load draft package:\n${taskRef}\n\n${err.message}`;
+          $("draft-editor-title").textContent = "Draft load failed";
+          toast(err.message);
+          setDraftLoadedButtons(false);
+        }
+      } finally {
+        if (seq === state.draftLoadSeq) state.draftLoading = false;
+      }
+    }
+    const draftEditorValue = () => ($("draft-editor") || {}).value || "";
+    async function refreshDraftPreview() {
+      const taskRef = selectedDraftRef();
+      if (!taskRef) return;
+      const data = await api("/api/task-review/save", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({task: taskRef, suggested_comment: draftEditorValue()})
+      });
+      state.draftDirty = false;
+      $("draft-preview").textContent = (data.task || {}).comment_body || "";
+      toast("Draft saved");
+    }
+    function setDraftButtons(disabled) {
+      ["draft-reload", "draft-save", "draft-post"].forEach(id => {
+        const btn = $(id);
+        if (btn) btn.disabled = disabled;
+      });
+    }
+    function setDraftLoadedButtons(loaded) {
+      const reload = $("draft-reload");
+      if (reload) reload.disabled = false;
+      ["draft-save", "draft-post"].forEach(id => {
+        const btn = $(id);
+        if (btn) btn.disabled = !loaded;
+      });
+    }
+    async function postDraft() {
+      const taskRef = selectedDraftRef();
+      if (!taskRef) return;
+      if (!confirm("Post this approved comment to Gitea?")) return;
+      setDraftButtons(true);
+      try {
+        const data = await api("/api/task-review/post", {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({task: taskRef, suggested_comment: draftEditorValue()})
+        });
+        toast(`Posted comment to ${data.repo}#${data.target}`);
+        await Promise.all([loadTasks(), loadJobs(), loadDeliveries()]);
+        const nextTask = selectedDraftRef();
+        if (nextTask) await loadDraft(nextTask);
+        else clearDraftPane();
+      } finally {
+        setDraftButtons(!selectedDraftRef());
+      }
+    }
+    async function openDraftView() {
+      if (!state.tasks.length) await loadTasks();
+      const taskRef = selectedDraftRef();
+      if (taskRef) await loadDraft(taskRef);
+      else clearDraftPane();
     }
     async function refreshAll() {
       try {
@@ -1621,8 +3139,10 @@
       state.view = view;
       document.querySelectorAll(".view").forEach(el => el.classList.toggle("hidden", el.id !== view));
       document.querySelectorAll(".nav button").forEach(btn => btn.classList.toggle("active", btn.dataset.view === view));
-      $("view-title").textContent = document.querySelector(`.nav button[data-view="${view}"]`).textContent;
+      const labels = {board: "Board", items: "PRs", drafts: "Review Drafts", changes: "Requests", jobs: "Queue"};
+      $("view-title").textContent = labels[view] || document.querySelector(`.nav button[data-view="${view}"]`).textContent;
       if (view === "board") requestAnimationFrame(fitKanbanToWindow);
+      if (view === "drafts") openDraftView().catch(err => toast(err.message));
     }
     document.querySelectorAll(".nav button").forEach(btn => btn.addEventListener("click", () => setView(btn.dataset.view)));
     document.querySelectorAll("[data-item-filter]").forEach(btn => btn.addEventListener("click", async () => {
@@ -1640,11 +3160,29 @@
       document.querySelectorAll("[data-relation-filter]").forEach(x => x.classList.toggle("active", x === btn));
       await loadItems();
     }));
-    document.querySelectorAll("[data-board-relation-filter]").forEach(btn => btn.addEventListener("click", async () => {
-      state.boardRelationFilter = btn.dataset.boardRelationFilter;
-      document.querySelectorAll("[data-board-relation-filter]").forEach(x => x.classList.toggle("active", x === btn));
-      await loadBoard();
-    }));
+    const boardSearch = $("board-search");
+    if (boardSearch) {
+      boardSearch.addEventListener("input", () => {
+        loadBoard();
+      });
+    }
+    $("monitor-toggle").addEventListener("change", async (event) => {
+      const enabled = event.target.checked;
+      applyMonitoringState({enabled, controllable: true});
+      try {
+        const data = await api("/api/monitoring/toggle", {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({enabled})
+        });
+        applyMonitoringState(data.monitoring);
+        toast(data.monitoring && data.monitoring.enabled ? "Scheduled monitoring resumed" : "Scheduled monitoring paused");
+        await loadStatus();
+      } catch (err) {
+        applyMonitoringState({enabled: !enabled, controllable: true});
+        toast(err.message);
+      }
+    });
     $("theme-toggle").addEventListener("click", () => {
       applyTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark");
     });
@@ -1662,19 +3200,40 @@
         await refreshAll();
       } catch (err) { toast(err.message); }
     });
+    $("draft-refresh").addEventListener("click", async () => {
+      await loadTasks();
+      await loadDraft(selectedDraftRef());
+    });
+    $("draft-reload").addEventListener("click", async () => {
+      if (state.draftDirty && !confirm("Discard unsaved comment edits?")) return;
+      await loadDraft(selectedDraftRef());
+    });
+    $("draft-save").addEventListener("click", async () => {
+      setDraftButtons(true);
+      try {
+        await refreshDraftPreview();
+      } catch (err) {
+        toast(err.message);
+      } finally {
+        setDraftButtons(false);
+      }
+    });
+    $("draft-post").addEventListener("click", async () => {
+      try {
+        await postDraft();
+      } catch (err) {
+        toast(err.message);
+        setDraftButtons(false);
+      }
+    });
+    $("draft-editor").addEventListener("input", () => {
+      state.draftDirty = true;
+    });
     $("scan-stale-issues").addEventListener("click", async () => {
       if (!confirm("Scan untackled open issues and queue stale issue handling jobs?")) return;
       try {
         const data = await api("/api/scan-stale-issues", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({queue_only:true})});
         toast(`Stale scan complete: ${data.events.length} event(s), queued ${data.queued} job(s)`);
-        await refreshAll();
-      } catch (err) { toast(err.message); }
-    });
-    $("sync-reviews").addEventListener("click", async () => {
-      if (!confirm("Run PR review catch-up with runtime=none and no posting?")) return;
-      try {
-        const data = await api("/api/sync-review-requests", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({runtime:"none", no_post:true})});
-        toast(`Catch-up complete: ${data.processed} job(s) processed`);
         await refreshAll();
       } catch (err) { toast(err.message); }
     });

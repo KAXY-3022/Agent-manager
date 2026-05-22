@@ -39,11 +39,11 @@ class RunnerStateTests(unittest.TestCase):
             comment_model="gpt-5.5",
             comment_reasoning_effort="medium",
             discovery_poll_seconds=60,
-            active_pr_poll_seconds=30,
+            active_pr_poll_seconds=60,
             pr_review_poll_seconds=0,
             pr_review_poll_repos=(),
             pr_review_poll_limit=0,
-            monitor_poll_seconds=0,
+            monitor_poll_seconds=60,
             monitor_repos=(),
             monitor_limit=0,
             monitor_pr_reviews=False,
@@ -78,6 +78,42 @@ class RunnerStateTests(unittest.TestCase):
             for handler in original_handlers:
                 root_logger.addHandler(handler)
             root_logger.setLevel(original_level)
+
+    def test_bridge_scheduled_monitoring_can_pause_and_resume(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+
+            self.assertTrue(bridge.scheduled_monitoring_enabled())
+            self.assertTrue(bridge.monitoring_status()["enabled"])
+
+            bridge.set_scheduled_monitoring_enabled(False)
+            self.assertFalse(bridge.scheduled_monitoring_enabled())
+            self.assertFalse(bridge.monitoring_status()["enabled"])
+
+            bridge.set_scheduled_monitoring_enabled(True)
+            self.assertTrue(bridge.scheduled_monitoring_enabled())
+
+    def test_bridge_scheduled_monitoring_uses_one_unified_poller(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = replace(
+                self.make_config(tmpdir),
+                monitor_repos=("ExampleOrg/project-core",),
+                monitor_poll_seconds=60,
+            )
+            with mock.patch.object(a2a_runner.WebhookBridge, "monitor_once", return_value=[]):
+                bridge = a2a_runner.WebhookBridge(config, start_worker=True)
+                try:
+                    status = bridge.monitoring_status()
+                    thread_names = [thread.name for thread in threading.enumerate()]
+                finally:
+                    bridge.shutdown()
+
+        self.assertTrue(status["monitor_alive"])
+        self.assertNotIn("discovery_alive", status)
+        self.assertNotIn("active_pr_alive", status)
+        self.assertIn("a2a-agent-runner-monitor-poller", thread_names)
+        self.assertNotIn("a2a-agent-runner-discovery-poller", thread_names)
+        self.assertNotIn("a2a-agent-runner-active-pr-poller", thread_names)
 
     def test_branch_prefix_does_not_override_explicit_other_author(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -329,6 +365,76 @@ class RunnerStateTests(unittest.TestCase):
 
         self.assertFalse(status["reviewed"])
         self.assertTrue(status["stale"])
+
+    def test_pr_review_status_exposes_request_changes_as_reviewed_decision(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "request_changes"
+            task_dir.mkdir()
+            (task_dir / "review.md").write_text(
+                "# PR Review\n\n## Verdict\n\nRequest Changes\n",
+                encoding="utf-8",
+            )
+            a2a_runner.iter_records = lambda: [
+                (
+                    task_dir,
+                    {
+                        "created_at": "2026-05-21T05:09:12+00:00",
+                        "repo": "ExampleOrg/project-core",
+                        "item_type": "pull_request",
+                        "target_index": "464",
+                        "head_sha": "ddeefa4e",
+                        "runtime_status": "succeeded",
+                        "runtime_used": "codex",
+                        "posted": True,
+                    },
+                )
+            ]
+            try:
+                status = a2a_runner.review_status_for_item(
+                    "ExampleOrg/project-core", "pull_request", 464, "ddeefa4e"
+                )
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+        self.assertTrue(status["reviewed"])
+        self.assertEqual(status["review_decision"], "request_changes")
+        self.assertEqual(status["review_decision_label"], "reviewed")
+
+    def test_pr_review_status_exposes_approve_decision(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "approve"
+            task_dir.mkdir()
+            (task_dir / "review.md").write_text(
+                "# PR Review\n\n## Verdict\n\nApprove\n",
+                encoding="utf-8",
+            )
+            a2a_runner.iter_records = lambda: [
+                (
+                    task_dir,
+                    {
+                        "created_at": "2026-05-21T05:09:12+00:00",
+                        "repo": "ExampleOrg/project-core",
+                        "item_type": "pull_request",
+                        "target_index": "465",
+                        "head_sha": "ddeefa4e",
+                        "runtime_status": "succeeded",
+                        "runtime_used": "codex",
+                        "posted": True,
+                    },
+                )
+            ]
+            try:
+                status = a2a_runner.review_status_for_item(
+                    "ExampleOrg/project-core", "pull_request", 465, "ddeefa4e"
+                )
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+        self.assertTrue(status["reviewed"])
+        self.assertEqual(status["review_decision"], "approved")
+        self.assertEqual(status["review_decision_label"], "approved")
 
     def test_issue_triage_status_marks_mid_and_hard_as_human_attention(self):
         original_iter_records = a2a_runner.iter_records
@@ -717,7 +823,7 @@ mid-human-review
             self.assertEqual(job.kind, "issue")
             self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#398")
 
-    def test_active_pr_poll_queues_review_when_request_added_after_creation(self):
+    def test_active_pr_poll_tracks_review_request_without_queueing_job(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
                 **{
@@ -762,12 +868,14 @@ mid-human-review
                 mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
                 events = bridge.active_pr_once()
 
-            self.assertIn("queued requested review", "\n".join(events))
-            job = bridge.jobs.get_nowait()
-            self.assertEqual(job.kind, "pr_review")
-            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#450@abc123")
+            self.assertIn("review requested", "\n".join(events))
+            self.assertTrue(bridge.jobs.empty())
+            items = bridge.store.tracked_items_dicts(10, username="Dev.User")
+            tracked = next(item for item in items if item["number"] == 450)
+            self.assertTrue(tracked["relationships"]["review_requested_from_me"])
+            self.assertTrue(tracked["pr_review_action"]["available"])
 
-    def test_active_pr_poll_queues_review_when_pr_assigned_to_user(self):
+    def test_active_pr_poll_tracks_assigned_review_without_queueing_job(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
                 **{
@@ -814,12 +922,14 @@ mid-human-review
                 mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
                 events = bridge.active_pr_once()
 
-            self.assertIn("queued requested review", "\n".join(events))
-            job = bridge.jobs.get_nowait()
-            self.assertEqual(job.kind, "pr_review")
-            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#451@abc123")
+            self.assertIn("review requested", "\n".join(events))
+            self.assertTrue(bridge.jobs.empty())
+            items = bridge.store.tracked_items_dicts(10, username="Dev.User")
+            tracked = next(item for item in items if item["number"] == 451)
+            self.assertTrue(tracked["relationships"]["assigned_to_me"])
+            self.assertTrue(tracked["pr_review_action"]["available"])
 
-    def test_active_pr_poll_queues_rereview_when_requested_head_changes(self):
+    def test_active_pr_poll_tracks_rereview_when_requested_head_changes_without_queueing_job(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
                 **{
@@ -862,12 +972,330 @@ mid-human-review
 
             with mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
                 mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
-                bridge.active_pr_once()
+                events = bridge.active_pr_once()
 
+            self.assertIn("review requested", "\n".join(events))
+            self.assertTrue(bridge.jobs.empty())
+
+    def test_manual_pr_review_queue_creates_review_job_for_requested_review(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("ExampleOrg/project-core",),
+                    "monitor_limit": 10,
+                    "monitor_pr_reviews": True,
+                }
+            )
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            pr = {
+                "index": 450,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Needs review",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                "head": "feature/review",
+                "headSha": "abc123",
+                "requested_reviewers": [{"login": "Dev.User"}],
+                "reviews": [],
+                "comments": [],
+            }
+
+            with mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
+                response = bridge.queue_manual_pr_review("ExampleOrg/project-core", 450)
+
+            self.assertEqual(response.status_code, 202)
             job = bridge.jobs.get_nowait()
-            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#450@newsha")
+            self.assertEqual(job.kind, "pr_review")
+            self.assertEqual(job.event_type, "pr_review_manual")
+            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#450@abc123")
 
-    def test_active_pr_poll_replies_only_for_reviewer_delegate_not_author_pr(self):
+    def test_sync_review_requests_tracks_without_queueing_review_jobs(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "pr_review_poll_repos": ("ExampleOrg/project-core",),
+                    "pr_review_poll_limit": 10,
+                    "monitor_pr_reviews": True,
+                }
+            )
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            pr = {
+                "index": 450,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Needs review",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                "head": "feature/review",
+                "headSha": "abc123",
+                "requested_reviewers": [{"login": "Dev.User"}],
+                "reviews": [],
+                "comments": [],
+            }
+
+            with mock.patch.object(a2a_runner, "list_open_prs", return_value=[{"index": 450}]), \
+                mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
+                events = bridge.sync_review_requests()
+
+            self.assertIn("review requested", "\n".join(events))
+            self.assertTrue(bridge.jobs.empty())
+            tracked = bridge.store.tracking_snapshot("ExampleOrg/project-core", "pull_request", 450)
+            self.assertEqual(tracked["head_sha"], "abc123")
+
+    def test_manual_pr_review_retry_persists_for_failed_manual_job(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="manual-ExampleOrg-project-core-450-abc123",
+                event_type="pr_review_manual",
+                dedupe_key="ExampleOrg/project-core#450@abc123",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=450,
+                title="Needs review",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                head_sha="abc123",
+            )
+            first = bridge._queue_job(job, "queued manual review")
+            bridge.store.update_job(job.dedupe_key, "failed")
+            retry = bridge._queue_job(job, "retry manual review")
+            second_retry = bridge._queue_job(job, "retry manual review again")
+
+            self.assertEqual(first.status_code, 202)
+            self.assertEqual(retry.status_code, 202)
+            self.assertTrue(retry.body.get("retry"))
+            self.assertEqual(second_retry.status_code, 200)
+            self.assertEqual(second_retry.body["status"], "duplicate")
+            self.assertEqual(bridge.store.job_dict_for_key(job.dedupe_key)["retry_count"], 1)
+
+    def test_manual_pr_review_action_hides_when_retry_limit_reached(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="manual-ExampleOrg-project-core-450-abc123",
+                event_type="pr_review_manual",
+                dedupe_key="ExampleOrg/project-core#450@abc123",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=450,
+                title="Needs review",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                head_sha="abc123",
+            )
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 450,
+                    "title": "Needs review",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                    "state": "open",
+                    "author": "Other.User",
+                    "head": "feature/review",
+                    "head_sha": "abc123",
+                    "requested_reviewers": ["Dev.User"],
+                    "reviews": [],
+                    "review_comments": [],
+                    "comments": [],
+                }
+            )
+            bridge._queue_job(job, "queued manual review")
+            bridge.store.update_job(job.dedupe_key, "failed")
+            bridge._queue_job(job, "retry manual review")
+            bridge.store.update_job(job.dedupe_key, "failed")
+
+            config = bridge.config
+            items = bridge.store.tracked_items_dicts(
+                10,
+                "pull_request",
+                "review_requested",
+                config.username,
+                config.username_aliases,
+                config.own_branch_prefixes,
+                "open",
+            )
+
+            self.assertFalse(items[0]["pr_review_action"]["available"])
+            self.assertEqual(items[0]["pr_review_action"]["reason"], "manual retry limit reached")
+            self.assertEqual(items[0]["job_status"]["status"], "failed")
+            self.assertEqual(items[0]["job_status"]["retry_count"], 1)
+
+    def test_active_pr_poll_tracks_low_confidence_retry_without_queueing_job(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("ExampleOrg/project-core",),
+                    "monitor_limit": 10,
+                    "monitor_pr_reviews": True,
+                }
+            )
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            head_sha = "abc123"
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 450,
+                    "title": "Needs review",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                    "state": "open",
+                    "author": "Other.User",
+                    "head": "feature/review",
+                    "head_sha": head_sha,
+                    "requested_reviewers": ["Dev.User"],
+                    "reviews": [],
+                    "review_comments": [],
+                    "comments": [],
+                }
+            )
+            previous_job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id=f"active-ExampleOrg-project-core-450-{head_sha}",
+                event_type="pr_review_active",
+                dedupe_key=f"ExampleOrg/project-core#450@{head_sha}",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=450,
+                title="Needs review",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                head_sha=head_sha,
+            )
+            bridge.store.record_delivery(
+                previous_job.delivery_id,
+                previous_job.event_type,
+                previous_job.dedupe_key,
+                "done",
+                "low-confidence skipped",
+            )
+            bridge.store.reserve_or_retry_job(previous_job, retry_limit=0)
+            bridge.store.update_job(previous_job.dedupe_key, "done")
+            task_dir = Path(tmpdir) / "low-confidence"
+            task_dir.mkdir()
+            a2a_runner.iter_records = lambda: [
+                (
+                    task_dir,
+                    {
+                        "created_at": "2026-05-21T05:09:12+00:00",
+                        "repo": "ExampleOrg/project-core",
+                        "item_type": "pull_request",
+                        "target_index": "450",
+                        "head_sha": head_sha,
+                        "runtime_status": "needs_human_review",
+                        "runtime_used": "codex",
+                        "posted": False,
+                        "post_skipped_reason": a2a_runner.LOW_CONFIDENCE_PR_REVIEW_REASON,
+                    },
+                )
+            ]
+            pr = {
+                "index": 450,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Needs review",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                "head": "feature/review",
+                "headSha": head_sha,
+                "requested_reviewers": [{"login": "Dev.User"}],
+                "reviews": [],
+                "comments": [],
+            }
+
+            try:
+                with mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
+                    mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
+                    events = bridge.active_pr_once()
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+            self.assertIn("review retry available", "\n".join(events))
+            self.assertTrue(bridge.jobs.empty())
+            self.assertEqual(bridge.store.job_status_for_key(f"ExampleOrg/project-core#450@{head_sha}"), "done")
+
+    def test_active_pr_poll_tracks_missing_current_head_review_after_missed_transition_without_queueing(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("ExampleOrg/project-core",),
+                    "monitor_limit": 10,
+                    "monitor_pr_reviews": True,
+                }
+            )
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            old_head_sha = "oldsha"
+            current_head_sha = "newsha"
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 453,
+                    "title": "Needs review",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                    "state": "open",
+                    "author": "Other.User",
+                    "head": "feature/review",
+                    "head_sha": current_head_sha,
+                    "requested_reviewers": ["Dev.User"],
+                    "reviews": [],
+                    "review_comments": [],
+                    "comments": [],
+                }
+            )
+            bridge.store.record_delivery(
+                f"active-ExampleOrg-project-core-453-{current_head_sha}",
+                "pr_review_active",
+                f"ExampleOrg/project-core#453@{current_head_sha}",
+                "ignored",
+                "active job ExampleOrg/project-core#453@oldsha is running",
+            )
+            a2a_runner.iter_records = lambda: [
+                (
+                    Path(tmpdir) / "old-review",
+                    {
+                        "created_at": "2026-05-21T05:09:12+00:00",
+                        "repo": "ExampleOrg/project-core",
+                        "item_type": "pull_request",
+                        "target_index": "453",
+                        "head_sha": old_head_sha,
+                        "runtime_status": "succeeded",
+                        "runtime_used": "codex",
+                        "posted": True,
+                    },
+                )
+            ]
+            pr = {
+                "index": 453,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Needs review",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                "head": "feature/review",
+                "headSha": current_head_sha,
+                "requested_reviewers": [{"login": "Dev.User"}],
+                "reviews": [],
+                "comments": [],
+            }
+
+            try:
+                with mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
+                    mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
+                    events = bridge.active_pr_once()
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+            self.assertIn("current-head review available", "\n".join(events))
+            self.assertTrue(bridge.jobs.empty())
+            self.assertEqual(bridge.store.job_status_for_key(f"ExampleOrg/project-core#453@{current_head_sha}"), "")
+
+    def test_active_pr_poll_tracks_reviewer_delegate_comments_without_queueing_job(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
                 **{
@@ -914,8 +1342,7 @@ mid-human-review
                 mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
                 bridge.active_pr_once()
 
-            delegate_job = bridge.jobs.get_nowait()
-            self.assertIn(":comment-", delegate_job.dedupe_key)
+            self.assertTrue(bridge.jobs.empty())
 
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
@@ -1208,6 +1635,69 @@ Still valid and should be assigned.
 
         self.assertTrue(a2a_runner.pr_review_low_confidence_reason(review))
 
+    def test_task_review_payload_and_save_update_suggested_comment(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "task"
+            task_dir.mkdir()
+            record = {
+                "task_id": "task",
+                "repo": "ExampleOrg/project-core",
+                "item_type": "pull_request",
+                "target_index": "503",
+                "pull_url": "https://gitea.example.com/ExampleOrg/project-core/pulls/503",
+                "title": "Needs review",
+                "runtime_status": "needs_human_review",
+                "posted": False,
+            }
+            a2a_runner.write_json(task_dir / "record.json", record)
+            a2a_runner.write_text(
+                task_dir / "review.md",
+                "# PR Review\n\n## Findings\n\nOriginal finding.\n\n## Suggested PR Comment\n\nOld comment.",
+            )
+
+            payload = a2a_runner.task_review_payload(task_dir)
+            saved = a2a_runner.save_task_suggested_comment(
+                task_dir,
+                "## Automated PR Review\n\n**Verdict:** Comment\n\nEdited comment.",
+            )
+            saved_review = (task_dir / "review.md").read_text(encoding="utf-8")
+            saved_record = a2a_runner.load_json(task_dir / "record.json")
+
+        self.assertIn("## Automated PR Review", payload["suggested_comment"])
+        self.assertIn("Original finding.", payload["comment_body"])
+        self.assertIn("Edited comment.", saved["comment_body"])
+        self.assertIn("Edited comment.", saved_review)
+        self.assertIn("review_edited_at", saved_record)
+
+    def test_posting_low_confidence_review_normalizes_record_to_succeeded(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "task"
+            task_dir.mkdir()
+            record = {
+                "task_id": "task",
+                "repo": "ExampleOrg/project-core",
+                "item_type": "pull_request",
+                "target_index": "503",
+                "runtime_status": "needs_human_review",
+                "posted": False,
+                "post_skipped_reason": a2a_runner.LOW_CONFIDENCE_PR_REVIEW_REASON,
+            }
+            a2a_runner.write_json(task_dir / "record.json", record)
+            a2a_runner.write_text(
+                task_dir / "review.md",
+                "## Suggested PR Comment\n\n## Automated PR Review\n\n**Verdict:** Comment\n\nReady.",
+            )
+
+            with mock.patch.object(a2a_runner, "duplicate_comment_reason", return_value=""), \
+                mock.patch.object(a2a_runner, "run_command", return_value=mock.Mock(returncode=0, stdout="", stderr="")):
+                a2a_runner.post_review_comment(task_dir, suggested_only=True, max_chars=12000)
+
+            posted = a2a_runner.load_json(task_dir / "record.json")
+
+        self.assertTrue(posted["posted"])
+        self.assertEqual(posted["runtime_status"], "succeeded")
+        self.assertNotIn("post_skipped_reason", posted)
+
     def test_issue_row_cards_do_not_render_linked_prs(self):
         ui = a2a_runner.load_ui_html()
         marker = "const issueCard ="
@@ -1240,14 +1730,50 @@ Still valid and should be assigned.
         work_card = ui[start:end]
 
         self.assertIn("repoShortName(item.repo)", identity_card)
-        self.assertIn("shortUser(item.author", identity_card)
+        self.assertNotIn("shortUser(item.author", identity_card)
         self.assertIn("PR#${esc(item.number)}", identity_card)
+        self.assertIn("prReviewFlag(item)", identity_card)
         self.assertIn("prCardIdentity(item)", work_card)
+        self.assertIn("shortUser(item.author", work_card)
         self.assertIn("jobStatusIcon(item)", work_card)
         self.assertNotIn("titleHref(item)", work_card)
         self.assertNotIn("workCardDetail(item)", work_card)
         self.assertNotIn("cardLinks(item", work_card)
         self.assertNotIn("work-card-footer", work_card)
+
+    def test_pr_cards_use_review_decision_status_without_agent_tag(self):
+        ui = a2a_runner.load_ui_html()
+        marker = "const priorityTags ="
+        start = ui.index(marker)
+        end = ui.index("const prReviewFlag =", start)
+        priority_tags = ui[start:end]
+        review_start = ui.index("const prReviewFlag =")
+        review_end = ui.index("const workCard =", review_start)
+        review_flag = ui[review_start:review_end]
+
+        self.assertNotIn('review.review_decision', priority_tags)
+        self.assertIn('review.review_decision', review_flag)
+        self.assertIn('decision === "approved" ? "approved" : "reviewed"', review_flag)
+        self.assertIn("work-card-review-flag", review_flag)
+        self.assertNotIn('tags.push(["agent"', priority_tags)
+        self.assertNotIn("review_requested_from_me", priority_tags)
+
+    def test_pr_cards_use_top_right_dot_only_for_agent_job_status(self):
+        ui = a2a_runner.load_ui_html()
+        card_css_start = ui.index(".work-card::before")
+        card_css_end = ui.index(".work-card:hover", card_css_start)
+        card_css = ui[card_css_start:card_css_end]
+        job_logic_start = ui.index("const jobStatusIcon =")
+        job_logic_end = ui.index("const jobStatusCell =", job_logic_start)
+        job_logic = ui[job_logic_start:job_logic_end]
+
+        self.assertNotIn(".work-card::after", card_css)
+        self.assertIn(".work-card-job .job-indicator", ui)
+        self.assertIn(".job-indicator.queued", ui)
+        self.assertIn(".job-indicator.running .job-dot", ui)
+        self.assertIn(".job-indicator.failed", ui)
+        self.assertIn(".job-indicator.done", ui)
+        self.assertIn('statusClass === "done"', job_logic)
 
     def test_kanban_treats_assigned_prs_as_review_requested(self):
         ui = a2a_runner.load_ui_html()
@@ -1332,6 +1858,72 @@ Still valid and should be assigned.
         self.assertIn("review.human_attention", ui)
         self.assertIn("issueTriageBadge", ui)
         self.assertIn("scan-stale-issues", ui)
+
+    def test_dashboard_has_scheduled_monitoring_switch(self):
+        ui = a2a_runner.load_ui_html()
+
+        self.assertIn('id="monitor-toggle"', ui)
+        self.assertIn("applyMonitoringState", ui)
+        self.assertIn("/api/monitoring/toggle", ui)
+        self.assertIn("Scheduled monitoring paused", ui)
+
+    def test_dashboard_has_manual_pr_review_queue_action(self):
+        ui = a2a_runner.load_ui_html()
+
+        self.assertIn("Review requested from you", ui)
+        self.assertIn("rel.review_requested_from_me || rel.assigned_to_me", ui)
+        self.assertIn("Start AI review", ui)
+        self.assertNotIn("prReviewCardAction", ui)
+        self.assertNotIn("card-review-btn", ui)
+        self.assertNotIn("work-card-actions", ui)
+        self.assertIn("data-queue-pr-review", ui)
+        self.assertIn("/api/pr-review/queue", ui)
+        self.assertIn("bindQueueReviewButtons", ui)
+        self.assertLess(ui.index('$("kanban-board").innerHTML'), ui.index("bindQueueReviewButtons();"))
+
+    def test_dashboard_has_review_drafts_page(self):
+        ui = a2a_runner.load_ui_html()
+
+        self.assertIn('data-view="drafts"', ui)
+        self.assertIn('id="draft-editor"', ui)
+        self.assertIn('id="draft-preview"', ui)
+        self.assertIn("/api/task-review?task=", ui)
+        self.assertIn("/api/task-review/save", ui)
+        self.assertIn("/api/task-review/post", ui)
+        self.assertIn("Post approved comment", ui)
+        self.assertIn("draftLoadSeq", ui)
+        self.assertIn("No unposted review drafts.", ui)
+        self.assertIn("data-draft-ref", ui)
+        self.assertIn("draftTaskRef", ui)
+        self.assertIn("state.selectedDraftTask = taskId;", ui)
+        self.assertIn("renderDraftList();\n          await loadDraft(btn.dataset.draftRef || draftTaskRef(taskId));", ui)
+        self.assertIn("Failed to load draft package:", ui)
+        self.assertIn("finally {\n        if (seq === state.draftLoadSeq) state.draftLoading = false;", ui)
+        self.assertNotIn('state.view === "drafts" && !state.draftLoading', ui)
+
+    def test_reviewed_pr_hides_stale_needs_human_review_job_indicator(self):
+        self.assertFalse(
+            a2a_runner.job_status_visible_for_item(
+                "pull_request",
+                "open",
+                {"reviewed": True, "stale": False},
+                {"status": "needs_human_review"},
+            )
+        )
+
+    def test_queue_table_shows_target_instead_of_raw_key(self):
+        ui = a2a_runner.load_ui_html()
+        start = ui.index("async function loadJobs()")
+        end = ui.index("async function loadDeliveries()", start)
+        load_jobs = ui[start:end]
+
+        self.assertIn("const jobTarget =", ui)
+        self.assertIn("PR#", ui)
+        self.assertIn("Issue#", ui)
+        self.assertIn('{t:"Target"', load_jobs)
+        self.assertIn("jobTarget(j)", load_jobs)
+        self.assertNotIn('{t:"Key"', load_jobs)
+        self.assertNotIn("${esc(j.dedupe_key)}", load_jobs)
 
     def test_dashboard_ui_loads_from_disk_when_available(self):
         self.assertTrue(a2a_runner.UI_HTML_PATH.exists())
@@ -1481,6 +2073,233 @@ Still valid and should be assigned.
 
         self.assertEqual([job.dedupe_key for job in pending], [head_job.dedupe_key])
 
+    def test_newer_pr_head_supersedes_active_older_head_job(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            older = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="older-head",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#453@oldsha",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=453,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                head_sha="oldsha",
+            )
+            newer = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="newer-head",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#453@newsha",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=453,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                head_sha="newsha",
+            )
+
+            bridge._queue_job(older, "queued older head")
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 453,
+                    "state": "open",
+                    "title": "",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                    "head_sha": "newsha",
+                }
+            )
+            bridge.store.update_job(older.dedupe_key, "running")
+            bridge.store.update_delivery(older.delivery_id, "running", older.dedupe_key)
+            response = bridge._queue_job(newer, "queued newer head")
+            pending = bridge.store.pending_jobs()
+            deliveries = bridge.store.recent_deliveries(limit=2)
+            older_status = bridge.store.job_status_for_key(older.dedupe_key)
+            newer_status = bridge.store.job_status_for_key(newer.dedupe_key)
+
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(older_status, "superseded")
+        self.assertEqual(newer_status, "queued")
+        self.assertEqual([job.dedupe_key for job in pending], [newer.dedupe_key])
+        delivery_statuses = {row["delivery_id"]: row["status"] for row in deliveries}
+        self.assertEqual(delivery_statuses["older-head"], "superseded")
+        self.assertEqual(delivery_statuses["newer-head"], "queued")
+
+    def test_comment_job_does_not_supersede_active_head_review(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            head_job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="head-1",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#453@abc123",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=453,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                head_sha="abc123",
+            )
+            comment_job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="comment-1",
+                event_type="pr_comment_active",
+                dedupe_key="ExampleOrg/project-core#453@newsha:comment-abcdef",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=453,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                head_sha="newsha",
+            )
+
+            bridge._queue_job(head_job, "queued head review")
+            bridge.store.update_job(head_job.dedupe_key, "running")
+            response = bridge._queue_job(comment_job, "queued comment")
+            head_status = bridge.store.job_status_for_key(head_job.dedupe_key)
+            comment_status = bridge.store.job_status_for_key(comment_job.dedupe_key)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.body["status"], "ignored")
+        self.assertEqual(head_status, "running")
+        self.assertEqual(comment_status, "")
+
+    def test_superseding_running_job_sets_cancel_event(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            older = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="older-head",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#453@oldsha",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=453,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                head_sha="oldsha",
+            )
+            newer = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="newer-head",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#453@newsha",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=453,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                head_sha="newsha",
+            )
+            cancel_event = threading.Event()
+
+            bridge._queue_job(older, "queued older head")
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 453,
+                    "state": "open",
+                    "title": "",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                    "head_sha": "newsha",
+                }
+            )
+            bridge.store.update_job(older.dedupe_key, "running")
+            bridge._register_running_job(older.dedupe_key, cancel_event)
+            response = bridge._queue_job(newer, "queued newer head")
+
+        self.assertEqual(response.status_code, 202)
+        self.assertTrue(cancel_event.is_set())
+
+    def test_delayed_old_head_job_does_not_supersede_current_head_review(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            current = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="current-head",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#453@currentsha",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=453,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                head_sha="currentsha",
+            )
+            delayed_old = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="delayed-old-head",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#453@oldsha",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=453,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                head_sha="oldsha",
+            )
+
+            bridge._queue_job(current, "queued current head")
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 453,
+                    "state": "open",
+                    "title": "",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                    "head_sha": "currentsha",
+                }
+            )
+            bridge.store.update_job(current.dedupe_key, "running")
+            response = bridge._queue_job(delayed_old, "queued delayed old head")
+            current_status = bridge.store.job_status_for_key(current.dedupe_key)
+            delayed_status = bridge.store.job_status_for_key(delayed_old.dedupe_key)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.body["status"], "ignored")
+        self.assertEqual(current_status, "running")
+        self.assertEqual(delayed_status, "")
+
+    def test_superseded_running_job_does_not_mark_done_after_completion(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="older-head",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#453@oldsha",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=453,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/453",
+                head_sha="oldsha",
+            )
+            bridge.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "queued", "queued")
+            bridge.store.reserve_or_retry_job(job, retry_limit=0)
+            original_run_job = bridge._run_job
+
+            def fake_run_job(_job, *, cancel_event=None):
+                bridge.store.supersede_job(job.dedupe_key, "superseded during run")
+
+            bridge._run_job = fake_run_job
+            try:
+                bridge.process_job(job)
+            finally:
+                bridge._run_job = original_run_job
+
+            deliveries = bridge.store.recent_deliveries(limit=1)
+            job_status = bridge.store.job_status_for_key(job.dedupe_key)
+
+        self.assertEqual(job_status, "superseded")
+        self.assertEqual(deliveries[0]["status"], "superseded")
+
     def test_process_job_skips_when_job_is_no_longer_queued(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
@@ -1502,7 +2321,7 @@ Still valid and should be assigned.
             called = False
             original_run_job = bridge._run_job
 
-            def fake_run_job(_job):
+            def fake_run_job(_job, *, cancel_event=None):
                 nonlocal called
                 called = True
 
@@ -1532,7 +2351,7 @@ Still valid and should be assigned.
             bridge.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "queued", "queued")
             bridge.store.reserve_or_retry_job(job, retry_limit=0)
             original_run_job = bridge._run_job
-            bridge._run_job = lambda _job: (_ for _ in ()).throw(
+            bridge._run_job = lambda _job, *, cancel_event=None: (_ for _ in ()).throw(
                 a2a_runner.DemoError("failed to fetch PR #460: connect: operation timed out")
             )
             try:
@@ -1567,7 +2386,9 @@ Still valid and should be assigned.
             bridge.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "queued", "queued")
             bridge.store.reserve_or_retry_job(job, retry_limit=0)
             original_run_job = bridge._run_job
-            bridge._run_job = lambda _job: (_ for _ in ()).throw(a2a_runner.DemoError("invalid review format"))
+            bridge._run_job = lambda _job, *, cancel_event=None: (_ for _ in ()).throw(
+                a2a_runner.DemoError("invalid review format")
+            )
             try:
                 with self.assertLogs(level="ERROR"):
                     bridge.process_job(job)
@@ -1578,6 +2399,58 @@ Still valid and should be assigned.
             deliveries = bridge.store.recent_deliveries(limit=1)
 
         self.assertEqual(deliveries[0]["status"], "failed")
+
+    def test_low_confidence_pr_review_job_is_not_marked_done(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="manual-ExampleOrg-project-core-503-abc123",
+                event_type="pr_review_manual",
+                dedupe_key="ExampleOrg/project-core#503@abc123",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=503,
+                title="Needs review",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/503",
+                head_sha="abc123",
+            )
+            task_dir = Path(tmpdir) / "low-confidence-pr-503"
+            task_dir.mkdir()
+            a2a_runner.iter_records = lambda: [
+                (
+                    task_dir,
+                    {
+                        "created_at": "2026-05-22T06:05:39+00:00",
+                        "repo": "ExampleOrg/project-core",
+                        "item_type": "pull_request",
+                        "target_index": "503",
+                        "head_sha": "abc123",
+                        "runtime_status": "needs_human_review",
+                        "runtime_used": "codex",
+                        "posted": False,
+                        "post_skipped_reason": a2a_runner.LOW_CONFIDENCE_PR_REVIEW_REASON,
+                    },
+                )
+            ]
+            bridge.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "queued", "queued")
+            bridge.store.reserve_or_retry_job(job, retry_limit=0)
+            original_run_job = bridge._run_job
+            bridge._run_job = lambda _job, *, cancel_event=None: None
+            try:
+                bridge.process_job(job)
+            finally:
+                bridge._run_job = original_run_job
+                a2a_runner.iter_records = original_iter_records
+
+            job_record = bridge.store.job_dict_for_key(job.dedupe_key)
+            deliveries = bridge.store.recent_deliveries(limit=1)
+
+        self.assertEqual(job_record["status"], "needs_human_review")
+        self.assertTrue(job_record["recent"])
+        self.assertEqual(deliveries[0]["status"], "needs_human_review")
+        self.assertIn("incomplete or unverified diff evidence", deliveries[0]["summary"])
 
     def test_codex_model_args_include_model_and_reasoning_effort(self):
         self.assertEqual(
@@ -1674,7 +2547,9 @@ Still valid and should be assigned.
             bridge.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "queued", "queued")
             bridge.store.reserve_or_retry_job(job, retry_limit=0)
             original_run_job = bridge._run_job
-            bridge._run_job = lambda _job: (_ for _ in ()).throw(a2a_runner.DuplicateCommentSkipped("duplicate"))
+            bridge._run_job = lambda _job, *, cancel_event=None: (_ for _ in ()).throw(
+                a2a_runner.DuplicateCommentSkipped("duplicate")
+            )
             try:
                 bridge.process_job(job)
             finally:
