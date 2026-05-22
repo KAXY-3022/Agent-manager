@@ -1343,16 +1343,43 @@
     }
     .toast {
       position: fixed;
-      right: 18px;
-      bottom: 18px;
-      background: var(--ink);
-      color: var(--bg);
-      border-radius: 7px;
-      padding: 10px 12px;
-      max-width: min(520px, calc(100vw - 36px));
-      box-shadow: 0 8px 24px rgba(0,0,0,.18);
-      display: none;
+      top: calc(16px + env(safe-area-inset-top));
+      right: calc(16px + env(safe-area-inset-right));
+      z-index: 10000;
+      min-width: 220px;
+      max-width: min(420px, calc(100vw - 32px));
+      padding: 10px 12px 10px 14px;
+      border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+      border-left: 3px solid var(--accent);
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--panel) 94%, var(--bg));
+      color: var(--ink);
+      box-shadow: 0 18px 44px rgba(15, 23, 42, .20);
+      opacity: 0;
+      transform: translateY(-8px);
+      pointer-events: none;
+      transition: opacity .16s ease, transform .16s ease;
       overflow-wrap: anywhere;
+    }
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .toast.ok { border-left-color: var(--ok); }
+    .toast.warn { border-left-color: var(--warn); }
+    .toast.bad { border-left-color: var(--bad); }
+    .toast-title {
+      font-size: 12px;
+      font-weight: 760;
+      line-height: 1.25;
+    }
+    .toast-detail {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.35;
+      max-height: 48px;
+      overflow: hidden;
     }
     .shell {
       grid-template-columns: 280px minmax(0, 1fr);
@@ -2017,9 +2044,9 @@
     <aside class="rail" id="sidebar">
       <div class="rail-top">
         <div class="brand">
-          <div class="mark">M</div>
+          <div class="mark">A</div>
           <div>
-            <h1>Moras Review</h1>
+            <h1>A2A Review</h1>
             <p>Agent workflow board</p>
           </div>
         </div>
@@ -2046,7 +2073,7 @@
       <div class="topbar">
         <div class="topbar-title">
           <button class="btn icon-btn sidebar-reveal hidden" id="sidebar-reveal" aria-label="Show sidebar" aria-expanded="false" aria-controls="sidebar" title="Show sidebar"><span class="sidebar-icon" aria-hidden="true"></span></button>
-          <div class="breadcrumbs"><span>Moras</span><span>/</span><strong id="view-title">Board</strong></div>
+          <div class="breadcrumbs"><span>A2A</span><span>/</span><strong id="view-title">Board</strong></div>
         </div>
         <label class="search-box" aria-label="Search work items">
           <span class="search-icon" aria-hidden="true"></span>
@@ -2183,7 +2210,7 @@
       </section>
     </main>
   </div>
-  <div class="toast" id="toast"></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script>
     const state = { view: "board", itemFilter: "", stateFilter: "open", relationFilter: "", boardRelationFilter: "related", userNames: [], tasks: [], selectedDraftTask: "", draftDirty: false, draftLoadSeq: 0, draftLoading: false };
     const boardColumns = [
@@ -2647,7 +2674,45 @@
         }
       }
     }
-    const toast = (msg) => { const t = $("toast"); t.textContent = msg; t.style.display = "block"; setTimeout(() => t.style.display = "none", 4200); };
+    const toastTarget = (payload = {}) => {
+      const key = String(payload.key || payload.active_key || "");
+      const source = key || String(payload.reason || "");
+      if (!source) return "";
+      const base = source.split("@", 1)[0].split(":", 1)[0].replace("#stale-", "#");
+      const match = base.match(/([^#]+)#(?:pr-|issue-)?(\d+)$/);
+      if (!match) return "";
+      const number = match[2];
+      const type = String(payload.job || "").includes("issue") || source.includes("#stale-") ? "Issue" : "PR";
+      return `${repoShortName(match[1])} ${type}#${number}`;
+    };
+    const toastMessage = (input, detail = "", tone = "") => {
+      if (typeof input === "object" && input) {
+        const target = toastTarget(input);
+        const status = String(input.status || "");
+        const title = status === "queued"
+          ? `${target || "Job"} queued`
+          : status === "ignored"
+            ? `${target || "Job"} not queued`
+            : status === "not_available"
+              ? "Review not available"
+              : status || "Updated";
+        const body = input.reason || input.retry ? (input.retry ? "Retry queued" : input.reason) : "";
+        return {title, detail: body, tone: status === "queued" ? "ok" : status === "ignored" || status === "not_available" ? "warn" : tone};
+      }
+      const text = String(input || "");
+      const parts = text.split(": ");
+      return parts.length > 1 ? {title: parts[0], detail: parts.slice(1).join(": "), tone} : {title: text, detail, tone};
+    };
+    let toastTimer = null;
+    const toast = (msg, detail = "", tone = "") => {
+      const t = $("toast");
+      const message = toastMessage(msg, detail, tone);
+      t.className = `toast ${message.tone || ""}`.trim();
+      t.innerHTML = `<div class="toast-title">${esc(message.title || "-")}</div>${message.detail ? `<div class="toast-detail">${esc(message.detail)}</div>` : ""}`;
+      window.clearTimeout(toastTimer);
+      requestAnimationFrame(() => t.classList.add("show"));
+      toastTimer = window.setTimeout(() => t.classList.remove("show"), 4200);
+    };
     async function api(path, options = {}) {
       const res = await fetch(path, options);
       const text = await res.text();
@@ -2792,7 +2857,7 @@
               headers:{"Content-Type":"application/json"},
               body:JSON.stringify({repo, number})
             });
-            toast(data.status === "queued" ? "PR review queued" : (data.reason || data.status || "Review request updated"));
+            toast(data);
             await Promise.all([loadBoard(), loadJobs(), loadDeliveries()]);
           } catch (err) {
             toast(err.message);
@@ -3072,16 +3137,15 @@
       try {
         const data = await api("/api/monitor-once", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({run_reviews:false})});
         toast(`Monitor complete: ${data.events.length} change(s)`);
-        await refreshAll();
       } catch (err) {
         toast(err.message);
-        await refreshAll();
       } finally {
         if (btn) {
           btn.disabled = false;
           btn.textContent = original || "Refresh";
         }
       }
+      await refreshAll();
     });
     $("draft-refresh").addEventListener("click", async () => {
       await loadTasks();

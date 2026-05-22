@@ -1923,6 +1923,33 @@ Still valid and should be assigned.
         self.assertIn("/api/monitoring/toggle", ui)
         self.assertIn("Scheduled monitoring paused", ui)
 
+    def test_dashboard_refresh_button_resets_before_dashboard_reload(self):
+        ui = a2a_runner.load_ui_html()
+        start = ui.index('$("scan-refresh").addEventListener')
+        end = ui.index('$("draft-refresh").addEventListener', start)
+        handler = ui[start:end]
+
+        self.assertIn('btn.textContent = "Scanning...";', handler)
+        self.assertIn('btn.textContent = original || "Refresh";', handler)
+        self.assertIn("await refreshAll();", handler)
+        self.assertLess(handler.index('btn.textContent = original || "Refresh";'), handler.index("await refreshAll();"))
+
+    def test_dashboard_toast_uses_top_layer_and_compact_job_target(self):
+        ui = a2a_runner.load_ui_html()
+        css_start = ui.index(".toast {")
+        css_end = ui.index(".toast.show", css_start)
+        toast_css = ui[css_start:css_end]
+        queue_start = ui.index("async function loadJobs()")
+        queue_handler_start = ui.index("bindQueueReviewButtons")
+
+        self.assertIn("top: calc", toast_css)
+        self.assertIn("z-index: 10000", toast_css)
+        self.assertNotIn("bottom:", toast_css)
+        self.assertIn("toastTarget", ui)
+        self.assertIn("toastMessage", ui)
+        self.assertIn("repoShortName(match[1])", ui)
+        self.assertIn("toast(data);", ui[queue_handler_start:queue_start])
+
     def test_dashboard_has_manual_pr_review_queue_action(self):
         ui = a2a_runner.load_ui_html()
 
