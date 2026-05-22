@@ -254,7 +254,7 @@ The `serve` process keeps the webhook tunnel up, but automation is driven by one
 
 - Unified monitor poll, default 60s: scans all configured repos for open issues/PRs, stores snapshots and relationship labels, queues newly assigned issue triage, and tracks review-requested PRs, new PR heads, and delegate comments for manual dashboard action.
 
-Local SQLite keeps snapshots for open tracked items and marks closed/merged items inactive so they are hidden from the main board. Task packages, job records, and tracking history are preserved for audit/debugging. In-flight PR reviews re-check the PR head before posting; if the head changed while the agent was reviewing, the stale result is kept locally but not posted. PR review packages include a changed-file summary from the fetched Gitea diff, and request-changes reviews are not auto-posted when the review admits it used truncated, unavailable, or unverified local-diff evidence.
+Local SQLite keeps snapshots for open tracked items and marks closed/merged items inactive so they are hidden from the main board. Task packages, job records, and tracking history are preserved for audit/debugging. In-flight PR reviews re-check the PR head before posting; if the head changed while the agent was reviewing, the stale result is kept locally but not posted. PR review packages fetch current PR metadata, all PR conversation comments, all PR review comments, and the full Gitea diff by default. Request-changes reviews are not auto-posted when the review admits it used truncated, unavailable, or unverified diff evidence.
 
 Codex model policy defaults:
 
@@ -362,7 +362,7 @@ Expected files:
 - `pr.json`: raw `tea` PR payload, for PR review runs.
 - `review-comments.json`: raw PR review comments, for PR review runs.
 - `diff.patch`: full PR diff, for PR review runs.
-- `context-manifest.md`: issue/PR metadata, body, comments, diff excerpt when applicable, and safety boundaries.
+- `context-manifest.md`: issue/PR metadata, body, comments, review comments, full PR diff by default, and safety boundaries.
 - `prompt.md`: prompt sent to the agent runtime.
 - `review.md`: agent output or package-only placeholder.
 - `verification-plan.md`: local verification checklist.

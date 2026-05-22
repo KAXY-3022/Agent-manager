@@ -144,19 +144,21 @@
     .rail {
       border-right: 1px solid var(--line);
       background: linear-gradient(180deg, var(--rail), var(--rail-2));
-      padding: 20px 16px;
+      padding: 14px 12px;
       position: sticky;
       top: 0;
       height: 100vh;
       overflow-y: auto;
+      display: flex;
+      flex-direction: column;
     }
     .rail-top {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 10px;
-      margin-bottom: 18px;
-      padding: 8px 8px 14px;
+      margin-bottom: 12px;
+      padding: 6px 4px 12px;
       border-bottom: 1px solid var(--line);
     }
     .brand {
@@ -189,11 +191,7 @@
       font-size: 12px;
       font-weight: 650;
     }
-    .nav {
-      display: grid;
-      gap: 6px;
-      margin-bottom: 16px;
-    }
+    .nav { display: grid; gap: 6px; }
     .nav button {
       width: 100%;
       border: 1px solid transparent;
@@ -224,29 +222,30 @@
       padding-left: 14px;
     }
     .rail-block {
+      margin-top: auto;
       border-top: 1px solid var(--line);
-      padding-top: 14px;
-      margin-top: 14px;
+      padding-top: 12px;
       color: var(--muted);
       display: grid;
-      gap: 10px;
+      gap: 8px;
     }
     .rail-block code {
-      display: block;
-      color: var(--ink);
-      background: color-mix(in srgb, var(--panel) 82%, transparent);
-      border: 1px solid var(--line);
-      border-radius: 9px;
-      padding: 5px 7px;
+      color: var(--muted);
+      background: transparent;
+      border: 0;
+      padding: 3px 0;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
       max-width: 100%;
       font-size: 11px;
+      text-align: right;
     }
     .rail-status-row {
       display: grid;
-      gap: 4px;
+      grid-template-columns: 70px minmax(0, 1fr);
+      align-items: center;
+      gap: 8px;
       min-width: 0;
     }
     .rail-status-label {
@@ -381,9 +380,17 @@
       content: "";
       width: 15px;
       height: 15px;
-      border: 2px solid currentColor;
       border-radius: 999px;
-      box-shadow: 0 -7px 0 -5px currentColor, 0 7px 0 -5px currentColor, 7px 0 0 -5px currentColor, -7px 0 0 -5px currentColor;
+      transition: transform .16s ease, box-shadow .16s ease, background .16s ease;
+    }
+    [data-theme="dark"] .theme-toggle::before {
+      background: transparent;
+      box-shadow: inset -5px -2px 0 0 currentColor;
+      transform: rotate(-18deg);
+    }
+    [data-theme="light"] .theme-toggle::before {
+      background: currentColor;
+      box-shadow: 0 -7px 0 -5px currentColor, 0 7px 0 -5px currentColor, 7px 0 0 -5px currentColor, -7px 0 0 -5px currentColor, 5px 5px 0 -5px currentColor, -5px -5px 0 -5px currentColor, 5px -5px 0 -5px currentColor, -5px 5px 0 -5px currentColor;
     }
     .monitor-switch {
       min-height: 34px;
@@ -500,7 +507,7 @@
       --board-card-padding: 9px;
       --board-card-title-lines: 2;
       --board-card-font-size: 13px;
-      --issue-card-height: 34px;
+      --issue-card-height: 54px;
       flex: 1 1 auto;
       min-height: 0;
       display: flex;
@@ -814,27 +821,9 @@
       box-shadow: var(--shadow);
       overflow: hidden;
     }
-    .issue-row-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 8px;
-      min-height: 44px;
-      padding: 8px 10px;
-      border-bottom: 1px solid var(--line);
-      background: color-mix(in srgb, var(--panel-alt) 68%, transparent);
-      font-size: 12px;
-      font-weight: 900;
-    }
-    .issue-row-title {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      min-width: 0;
-    }
     .issue-scan-btn {
-      min-height: 30px;
-      padding: 0 9px;
+      min-height: 34px;
+      padding: 0 11px;
       font-size: 12px;
       box-shadow: none;
       white-space: nowrap;
@@ -843,9 +832,9 @@
       display: grid;
       grid-template-columns: repeat(var(--issue-columns, 4), minmax(0, 1fr));
       grid-auto-rows: var(--issue-card-height);
-      gap: 8px;
-      padding: 8px;
-      max-height: 142px;
+      gap: 10px;
+      padding: 10px;
+      max-height: 176px;
       overflow: hidden;
       align-items: start;
     }
@@ -855,7 +844,7 @@
       border-left: 6px solid var(--rel-linked);
       border-radius: 12px;
       background: var(--card-subtle);
-      padding: 7px 8px;
+      padding: 9px 10px;
       display: grid;
       gap: 5px;
       height: var(--issue-card-height);
@@ -888,9 +877,10 @@
     .issue-card-title {
       font-weight: 600;
       line-height: 1.25;
-      white-space: nowrap;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
       overflow: hidden;
-      text-overflow: ellipsis;
     }
     .issue-card .badge,
     .issue-card .job-indicator {
@@ -1409,45 +1399,18 @@
       right: 22px;
       opacity: .65;
     }
-    .brand {
-      gap: 14px;
-    }
-    .brand h1 {
-      font-size: 16px;
-    }
+    .brand { gap: 10px; }
+    .brand h1 { font-size: 15px; }
     .brand p {
-      margin-top: 2px;
-      font-size: 12px;
+      margin-top: 1px;
+      font-size: 11px;
     }
-    .workspace-card,
-    .agent-health {
-      border: 1px solid var(--line);
-      border-radius: 18px;
-      background: linear-gradient(180deg, color-mix(in srgb, var(--panel) 86%, transparent), color-mix(in srgb, var(--panel-alt) 72%, transparent));
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .035);
-    }
-    .workspace-card {
-      padding: 18px;
-    }
-    .workspace-label,
-    .nav-title,
-    .repo-title {
+    .nav-title {
       color: var(--subtle);
       font-size: 11px;
       font-weight: 900;
       letter-spacing: .14em;
       text-transform: uppercase;
-    }
-    .workspace-name {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      margin-top: 13px;
-      color: var(--ink);
-      font-size: 16px;
-      font-weight: 900;
-      letter-spacing: -.03em;
     }
     .live-pill {
       min-height: 26px;
@@ -1461,8 +1424,7 @@
       font-size: 11px;
       font-weight: 900;
     }
-    .nav-section,
-    .repo-section {
+    .nav-section {
       display: grid;
       gap: 10px;
     }
@@ -1471,75 +1433,15 @@
       margin: 0;
     }
     .nav button {
-      height: 46px;
-      padding: 0 14px;
-      border-radius: 14px;
-      font-size: 15px;
-      font-weight: 850;
+      height: 38px;
+      padding: 0 10px;
+      border-radius: 11px;
+      font-size: 13px;
+      font-weight: 760;
     }
     .nav button.active {
       box-shadow: inset 4px 0 0 var(--accent);
       background: color-mix(in srgb, var(--accent) 16%, transparent);
-    }
-    .repo-list {
-      display: grid;
-      gap: 8px;
-    }
-    .repo-link {
-      display: flex;
-      align-items: center;
-      gap: 11px;
-      min-width: 0;
-      color: var(--muted);
-      font-size: 14px;
-      font-weight: 850;
-      padding: 6px 12px;
-    }
-    .repo-link::before {
-      content: "";
-      width: 11px;
-      height: 14px;
-      border: 1.5px solid currentColor;
-      border-radius: 2px;
-      opacity: .7;
-      flex: 0 0 auto;
-    }
-    .rail-block {
-      display: none;
-    }
-    .rail-bottom {
-      margin-top: auto;
-      display: grid;
-      gap: 16px;
-    }
-    .agent-health {
-      padding: 16px;
-      border-color: rgba(74, 222, 128, .24);
-      background: linear-gradient(180deg, rgba(34, 197, 94, .10), rgba(34, 197, 94, .045));
-    }
-    .agent-health-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-      font-size: 14px;
-      font-weight: 900;
-    }
-    .agent-health p {
-      margin: 10px 0 0;
-      color: var(--muted);
-      line-height: 1.35;
-      font-weight: 700;
-    }
-    .settings-link {
-      border: 0;
-      background: transparent;
-      color: var(--muted);
-      text-align: left;
-      font-size: 17px;
-      font-weight: 850;
-      padding: 6px 12px;
-      cursor: pointer;
     }
     .topbar {
       min-height: 54px;
@@ -1624,18 +1526,18 @@
     }
     .board-stats {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
-      gap: 8px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 7px;
       flex: 0 0 auto;
     }
     .board-stat {
-      min-height: 72px;
+      min-height: 58px;
       border: 1px solid var(--line);
-      border-radius: 16px;
+      border-radius: 12px;
       background:
         radial-gradient(circle at 84% 100%, var(--stat-glow, rgba(96, 165, 250, .12)), transparent 42%),
         linear-gradient(180deg, color-mix(in srgb, var(--panel) 92%, transparent), color-mix(in srgb, var(--panel-alt) 72%, transparent));
-      padding: 10px 11px;
+      padding: 8px 10px;
       overflow: hidden;
     }
     .board-stat-label {
@@ -1646,11 +1548,11 @@
       text-transform: uppercase;
     }
     .board-stat-value {
-      margin-top: 5px;
+      margin-top: 4px;
       display: flex;
       align-items: baseline;
       gap: 5px;
-      font-size: 23px;
+      font-size: 20px;
       line-height: 1;
       font-weight: 950;
       letter-spacing: -.035em;
@@ -1663,7 +1565,7 @@
       letter-spacing: 0;
     }
     .board-stat-note {
-      margin-top: 5px;
+      margin-top: 4px;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -1764,10 +1666,10 @@
     .issue-row {
       position: static;
       box-shadow: none;
-      max-height: 126px;
+      max-height: 176px;
     }
     .issue-row-body {
-      max-height: 82px;
+      max-height: 132px;
     }
     .board-frame .issue-row {
       flex: 0 0 auto;
@@ -1945,23 +1847,17 @@
     .mark {
       font-weight: 720;
     }
-    .brand h1,
-    .workspace-name,
-    .agent-health-head,
-    .settings-link {
+    .brand h1 {
       font-weight: 680;
       letter-spacing: -.01em;
     }
     .brand p,
-    .agent-health p,
     .work-card-cardmeta,
     .inspector-sub,
     .timeline-item span {
       font-weight: 500;
     }
-    .workspace-label,
     .nav-title,
-    .repo-title,
     .rail-status-label,
     .metric .label,
     .board-stat-label,
@@ -1970,7 +1866,6 @@
       letter-spacing: .11em;
     }
     .nav button,
-    .repo-link,
     .breadcrumbs,
     .btn,
     .target-link,
@@ -2130,10 +2025,6 @@
         </div>
         <button class="btn icon-btn" id="sidebar-hide" aria-label="Hide sidebar" aria-expanded="true" aria-controls="sidebar" title="Hide sidebar"><span class="sidebar-icon" aria-hidden="true"></span></button>
       </div>
-      <div class="workspace-card">
-        <div class="workspace-label">Workspace</div>
-        <div class="workspace-name"><span>moras-studio</span><span class="live-pill">Live</span></div>
-      </div>
       <div class="nav-section">
         <div class="nav-title">Review Ops</div>
         <div class="nav">
@@ -2144,25 +2035,11 @@
           <button data-view="jobs">Stale queue</button>
         </div>
       </div>
-      <div class="repo-section">
-        <div class="repo-title">Repositories</div>
-        <div class="repo-list">
-          <div class="repo-link">moras-brain</div>
-          <div class="repo-link">moras-agent</div>
-        </div>
-      </div>
       <div class="rail-block">
         <div class="rail-status-row"><span class="rail-status-label">Runtime</span><code id="runtime">-</code></div>
         <div class="rail-status-row"><span class="rail-status-label">Monitor</span><code id="monitor">-</code></div>
         <div class="rail-status-row"><span class="rail-status-label">Webhook</span><code id="webhook-url">-</code></div>
         <div class="rail-status-row"><span class="rail-status-label">Ngrok</span><code id="ngrok-url">-</code></div>
-      </div>
-      <div class="rail-bottom">
-        <div class="agent-health">
-          <div class="agent-health-head"><span>Agent health</span><span class="live-pill">98%</span></div>
-          <p id="agent-health-text">Last sync completed recently. No degraded services.</p>
-        </div>
-        <button class="settings-link" type="button">Settings</button>
       </div>
     </aside>
     <main>
@@ -2177,14 +2054,14 @@
         </label>
         <div class="topbar-actions">
           <div class="toolbar" id="toolbar">
-            <button class="btn icon-btn theme-toggle" id="theme-toggle" title="Toggle theme">Dark</button>
+            <button class="btn icon-btn theme-toggle" id="theme-toggle" aria-label="Toggle theme" title="Toggle theme"></button>
             <label class="monitor-switch" id="monitor-switch" title="Start or pause scheduled monitoring">
               <input type="checkbox" id="monitor-toggle" checked>
               <span class="monitor-switch-track" aria-hidden="true"></span>
               <span class="monitor-switch-text" id="monitor-switch-text">Monitoring</span>
             </label>
-            <button class="btn" id="refresh">Refresh</button>
-            <button class="btn" id="monitor-once">Scan</button>
+            <button class="btn" id="scan-refresh">Refresh</button>
+            <button class="btn issue-scan-btn" id="scan-stale-issues">Scan Stale</button>
           </div>
         </div>
       </div>
@@ -2195,16 +2072,11 @@
           <div class="board-stat" style="--stat-glow: rgba(251, 146, 60, .14)"><div class="board-stat-label">Reviewing</div><div class="board-stat-value"><span id="stat-reviewing">0</span><small>in progress</small></div><div class="board-stat-note" id="stat-reviewing-note">No active review load</div></div>
           <div class="board-stat" style="--stat-glow: rgba(74, 222, 128, .16)"><div class="board-stat-label">Reviewed</div><div class="board-stat-value"><span id="stat-reviewed">0</span><small>done</small></div><div class="board-stat-note">Ready for merge checks</div></div>
           <div class="board-stat" style="--stat-glow: rgba(251, 113, 133, .13)"><div class="board-stat-label">Issues</div><div class="board-stat-value"><span id="stat-issues">0</span><small>open</small></div><div class="board-stat-note" id="stat-issues-note">No visible backlog</div></div>
-          <div class="board-stat" style="--stat-glow: rgba(167, 139, 250, .14)"><div class="board-stat-label">Median Age</div><div class="board-stat-value"><span id="stat-age">-</span><small>queue</small></div><div class="board-stat-note">Healthy review cycle</div></div>
         </div>
         <div class="board-workspace">
           <div class="board-frame">
             <div class="kanban" id="kanban-board"></div>
             <div class="issue-row">
-              <div class="issue-row-head">
-                <div class="issue-row-title"><span>Issues</span><span class="badge" id="kanban-issues-count">0</span></div>
-                <button class="btn issue-scan-btn" id="scan-stale-issues">Scan Stale</button>
-              </div>
               <div class="issue-row-body" id="kanban-issues"></div>
             </div>
           </div>
@@ -2327,7 +2199,11 @@
       document.documentElement.dataset.theme = theme;
       localStorage.setItem("a2a-runner-theme", theme);
       const btn = $("theme-toggle");
-      if (btn) btn.textContent = theme === "dark" ? "Light" : "Dark";
+      if (btn) {
+        const target = theme === "dark" ? "light" : "dark";
+        btn.title = `Switch to ${target} mode`;
+        btn.setAttribute("aria-label", `Switch to ${target} mode`);
+      }
     }
     function applySidebarCollapsed(collapsed) {
       const shell = document.querySelector(".shell");
@@ -2763,9 +2639,9 @@
           const minWidth = issueCount > 8 ? 160 : 190;
           const columns = Math.max(1, Math.min(issueCount, Math.floor(width / minWidth) || 1));
           const rows = Math.ceil(issueCount / columns);
-          const maxBodyHeight = 142;
-          const gap = 6;
-          const cardHeight = Math.max(30, Math.min(52, Math.floor((maxBodyHeight - 12 - (gap * Math.max(0, rows - 1))) / rows)));
+          const maxBodyHeight = 132;
+          const gap = 10;
+          const cardHeight = Math.max(44, Math.min(64, Math.floor((maxBodyHeight - 20 - (gap * Math.max(0, rows - 1))) / rows)));
           board.style.setProperty("--issue-columns", String(columns));
           board.style.setProperty("--issue-card-height", `${cardHeight}px`);
         }
@@ -2817,8 +2693,6 @@
       $("metric-jobs").textContent = data.counts.jobs.done || 0;
       $("metric-jobs-sub").textContent = Object.entries(data.counts.jobs).map(([k,v]) => `${k}:${v}`).join("  ") || "No jobs";
       $("metric-last").textContent = data.counts.latest_tracked_event_at || "-";
-      const health = $("agent-health-text");
-      if (health) health.textContent = `Last sync completed at ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}. No degraded services.`;
     }
     async function loadChanges() {
       const params = new URLSearchParams({limit: "80"});
@@ -2875,8 +2749,6 @@
       const reviewing = (groups.reviewing || []).length;
       const reviewed = (groups.reviewed || []).length;
       const wip = (groups.wip || []).length;
-      const ages = prItems.map(itemAgeMinutes).filter(value => value > 0).sort((a, b) => a - b);
-      const medianMinutes = ages.length ? ages[Math.floor(ages.length / 2)] : 0;
       const attentionItem = pickAttentionItem([...prItems, ...issueItems]);
       const setText = (id, value) => { const node = $(id); if (node) node.textContent = value; };
       setText("stat-total-prs", totalPrs);
@@ -2886,7 +2758,6 @@
       setText("stat-reviewed", reviewed);
       setText("stat-issues", issueItems.length);
       setText("stat-issues-note", `${issueItems.filter(item => (item.snapshot && (item.snapshot.labels || []).length)).length} proposal, ${Math.max(0, issueItems.length - 1)} backlog`);
-      setText("stat-age", medianMinutes ? formatAge(new Date(Date.now() - medianMinutes * 60000).toISOString()) : "-");
       const workspace = document.querySelector(".board-workspace");
       if (workspace) workspace.classList.toggle("no-attention", !attentionItem);
       const inspector = $("board-inspector");
@@ -2898,7 +2769,6 @@
           <div class="kanban-body">${items.length ? items.map(item => workCard(item, indexes)).join("") : '<div class="kanban-empty">No items</div>'}</div>
         </section>`;
       }).join("");
-      $("kanban-issues-count").textContent = issueItems.length;
       $("kanban-issues").innerHTML = issueItems.length ? issueItems.map(item => issueCard(item)).join("") : '<div class="empty">No issues</div>';
       bindQueueReviewButtons();
       requestAnimationFrame(fitKanbanToWindow);
@@ -3192,13 +3062,26 @@
     $("sidebar-hide").addEventListener("click", () => {
       applySidebarCollapsed(true);
     });
-    $("refresh").addEventListener("click", refreshAll);
-    $("monitor-once").addEventListener("click", async () => {
+    $("scan-refresh").addEventListener("click", async () => {
+      const btn = $("scan-refresh");
+      const original = btn ? btn.textContent : "";
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Scanning...";
+      }
       try {
         const data = await api("/api/monitor-once", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({run_reviews:false})});
         toast(`Monitor complete: ${data.events.length} change(s)`);
         await refreshAll();
-      } catch (err) { toast(err.message); }
+      } catch (err) {
+        toast(err.message);
+        await refreshAll();
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = original || "Refresh";
+        }
+      }
     });
     $("draft-refresh").addEventListener("click", async () => {
       await loadTasks();

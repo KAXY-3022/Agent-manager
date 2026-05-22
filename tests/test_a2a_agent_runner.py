@@ -1615,9 +1615,65 @@ Still valid and should be assigned.
                 max_diff_chars=10,
             )
 
-        self.assertIn("Local Git refs may be stale", manifest)
+        self.assertIn("PR Review Evidence Package", manifest)
         self.assertIn("Changed files: 1", manifest)
-        self.assertIn("Full diff artifact:", manifest)
+        self.assertIn("Inline diff characters:", manifest)
+        self.assertNotIn("Demo Scope", manifest)
+        self.assertNotIn("Safety Boundaries", manifest)
+        self.assertNotIn("Task package read root", manifest)
+
+    def test_pr_manifest_can_include_complete_comments_and_diff(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            comments = [
+                {"poster": {"login": "A"}, "created": "2026-05-22T01:00:00Z", "body": "first"},
+                {"poster": {"login": "B"}, "created": "2026-05-22T02:00:00Z", "body": "second"},
+            ]
+            review_comments = [
+                {"reviewer": {"login": "R"}, "created": "2026-05-22T03:00:00Z", "path": "a.py", "line": 3, "body": "inline"}
+            ]
+            diff_text = "diff --git a/a.py b/a.py\n--- a/a.py\n+++ b/a.py\n@@\n-old\n+new\n"
+            manifest = a2a_runner.render_pr_manifest(
+                {
+                    "index": 460,
+                    "title": "Example",
+                    "state": "open",
+                    "user": "Reviewer.One",
+                    "head": "feature/example",
+                    "headSha": "abc123",
+                    "comments": comments,
+                    "reviews": [],
+                },
+                repo="ExampleOrg/project-core",
+                component=Path(tmpdir) / "project-core",
+                task_dir=Path(tmpdir) / "task",
+                review_comments=review_comments,
+                diff_text=diff_text,
+                max_comments=a2a_runner.PR_REVIEW_COMPLETE_COMMENTS,
+                max_diff_chars=a2a_runner.PR_REVIEW_COMPLETE_DIFF_CHARS,
+            )
+
+        self.assertIn(f"Inline diff characters: `{len(diff_text)}` / `{len(diff_text)}` (complete)", manifest)
+        self.assertIn("Comment 1: A at 2026-05-22T01:00:00Z", manifest)
+        self.assertIn("Comment 2: B at 2026-05-22T02:00:00Z", manifest)
+        self.assertIn("first", manifest)
+        self.assertIn("second", manifest)
+        self.assertIn("inline", manifest)
+        self.assertIn("+new", manifest)
+        self.assertNotIn("Skipped", manifest)
+        self.assertNotIn("diff truncated by local runner", manifest)
+
+    def test_pr_prompt_requires_complete_package_evidence(self):
+        prompt = a2a_runner.render_pr_prompt(
+            "manifest",
+            repo="ExampleOrg/project-core",
+            component=Path("/tmp/project-core"),
+        )
+
+        self.assertIn("PR metadata, conversation comments, review comments, and fetched Gitea diff", prompt)
+        self.assertIn("Use local repository files only to understand unchanged surrounding code", prompt)
+        self.assertIn("When the manifest says the inline diff is complete", prompt)
+        self.assertIn("do not claim missing, unavailable, or truncated diff evidence", prompt)
+        self.assertIn("Do not mention local task package paths", prompt)
 
     def test_low_confidence_request_changes_review_is_not_auto_postable(self):
         review = """# PR Review
@@ -2527,6 +2583,35 @@ Still valid and should be assigned.
                 a2a_runner.command_pr_review = original_command_pr_review
 
         self.assertFalse(captured["post"])
+
+    def test_worker_pr_review_uses_complete_comments_and_diff_defaults(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="manual-ExampleOrg-project-core-503-abc123",
+                event_type="pr_review_manual",
+                dedupe_key="ExampleOrg/project-core#503@abc123",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=503,
+                title="Needs review",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/503",
+                head_sha="abc123",
+            )
+
+            captured = {}
+            original_command_pr_review = a2a_runner.command_pr_review
+            a2a_runner.command_pr_review = lambda args: captured.update(
+                {"max_comments": args.max_comments, "max_diff_chars": args.max_diff_chars}
+            ) or 0
+            try:
+                bridge._run_job(job)
+            finally:
+                a2a_runner.command_pr_review = original_command_pr_review
+
+        self.assertEqual(captured["max_comments"], a2a_runner.PR_REVIEW_COMPLETE_COMMENTS)
+        self.assertEqual(captured["max_diff_chars"], a2a_runner.PR_REVIEW_COMPLETE_DIFF_CHARS)
 
     def test_duplicate_comment_skip_marks_job_done_and_delivery_ignored(self):
         with tempfile.TemporaryDirectory() as tmpdir:
