@@ -401,6 +401,41 @@ class RunnerStateTests(unittest.TestCase):
         self.assertEqual(status["review_decision"], "request_changes")
         self.assertEqual(status["review_decision_label"], "reviewed")
 
+    def test_pr_review_status_maps_block_decision_to_request_changes(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "block"
+            task_dir.mkdir()
+            (task_dir / "review.md").write_text(
+                "# PR Review\n\n## Verdict\n\n`BLOCK` - Verification gate failed.\n",
+                encoding="utf-8",
+            )
+            a2a_runner.iter_records = lambda: [
+                (
+                    task_dir,
+                    {
+                        "created_at": "2026-05-21T05:09:12+00:00",
+                        "repo": "ExampleOrg/project-core",
+                        "item_type": "pull_request",
+                        "target_index": "464",
+                        "head_sha": "ddeefa4e",
+                        "runtime_status": "succeeded",
+                        "runtime_used": "codex",
+                        "posted": True,
+                    },
+                )
+            ]
+            try:
+                status = a2a_runner.review_status_for_item(
+                    "ExampleOrg/project-core", "pull_request", 464, "ddeefa4e"
+                )
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+        self.assertTrue(status["reviewed"])
+        self.assertEqual(status["review_decision"], "request_changes")
+        self.assertEqual(status["review_decision_label"], "reviewed")
+
     def test_pr_review_status_exposes_approve_decision(self):
         original_iter_records = a2a_runner.iter_records
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -408,6 +443,41 @@ class RunnerStateTests(unittest.TestCase):
             task_dir.mkdir()
             (task_dir / "review.md").write_text(
                 "# PR Review\n\n## Verdict\n\nApprove\n",
+                encoding="utf-8",
+            )
+            a2a_runner.iter_records = lambda: [
+                (
+                    task_dir,
+                    {
+                        "created_at": "2026-05-21T05:09:12+00:00",
+                        "repo": "ExampleOrg/project-core",
+                        "item_type": "pull_request",
+                        "target_index": "465",
+                        "head_sha": "ddeefa4e",
+                        "runtime_status": "succeeded",
+                        "runtime_used": "codex",
+                        "posted": True,
+                    },
+                )
+            ]
+            try:
+                status = a2a_runner.review_status_for_item(
+                    "ExampleOrg/project-core", "pull_request", 465, "ddeefa4e"
+                )
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+        self.assertTrue(status["reviewed"])
+        self.assertEqual(status["review_decision"], "approved")
+        self.assertEqual(status["review_decision_label"], "approved")
+
+    def test_pr_review_status_maps_ship_decision_to_approved(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "ship"
+            task_dir.mkdir()
+            (task_dir / "review.md").write_text(
+                "# PR Review\n\n## Verdict\n\n`SHIP` - Gates pass.\n",
                 encoding="utf-8",
             )
             a2a_runner.iter_records = lambda: [
@@ -482,6 +552,94 @@ class RunnerStateTests(unittest.TestCase):
         self.assertEqual(hard_status["label"], "hard handoff")
         self.assertTrue(hard_status["human_attention"])
         self.assertEqual(hard_status["attention_reason"], "Issue needs human ownership")
+
+    def test_issue_human_handoff_takeover_clears_attention(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "hard"
+            task_dir.mkdir()
+            record = {
+                "created_at": "2026-05-21T05:11:00+00:00",
+                "repo": "ExampleOrg/project-core",
+                "item_type": "issue",
+                "target_index": "399",
+                "runtime_status": "succeeded",
+                "automation_decision": "hard-human-handoff",
+                "automation_status": "hard-human-handoff",
+            }
+            a2a_runner.write_json(task_dir / "record.json", record)
+            a2a_runner.write_text(task_dir / "review.md", "## Suggested Issue Comment\n\nTaking ownership.")
+
+            payload = a2a_runner.mark_issue_human_handoff_taken(task_dir, "Dev.User")
+            updated = a2a_runner.load_json(task_dir / "record.json")
+            try:
+                a2a_runner.iter_records = lambda: [(task_dir, updated)]
+                status = a2a_runner.issue_triage_status_for_item("ExampleOrg/project-core", "issue", 399)
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+        self.assertEqual(payload["human_handoff_status"], "taken-over")
+        self.assertEqual(updated["human_handoff_taken_by"], "Dev.User")
+        self.assertEqual(status["label"], "taken over")
+        self.assertFalse(status["human_attention"])
+        self.assertEqual(status["human_handoff_taken_by"], "Dev.User")
+
+    def test_issue_human_handoff_takeover_does_not_mask_failed_status(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "failed"
+            task_dir.mkdir()
+            record = {
+                "created_at": "2026-05-21T05:12:00+00:00",
+                "repo": "ExampleOrg/project-core",
+                "item_type": "issue",
+                "target_index": "400",
+                "runtime_status": "failed",
+                "automation_decision": "hard-human-handoff",
+                "automation_status": "hard-human-handoff",
+                "human_handoff_taken_at": "2026-05-21T05:13:00+00:00",
+                "human_handoff_taken_by": "Dev.User",
+            }
+            a2a_runner.write_json(task_dir / "record.json", record)
+            a2a_runner.write_text(task_dir / "review.md", "## Suggested Issue Comment\n\nTaking ownership.")
+            try:
+                a2a_runner.iter_records = lambda: [(task_dir, record)]
+                status = a2a_runner.issue_triage_status_for_item("ExampleOrg/project-core", "issue", 400)
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+            with self.assertRaisesRegex(a2a_runner.DemoError, "issue handoff"):
+                a2a_runner.mark_issue_human_handoff_taken(task_dir, "Dev.User")
+
+        self.assertEqual(status["label"], "failed")
+        self.assertTrue(status["human_attention"])
+        self.assertEqual(status["attention_reason"], "Issue triage failed")
+        self.assertEqual(status["human_handoff_taken_by"], "Dev.User")
+
+    def test_issue_human_handoff_endpoint_can_fallback_to_repo_number(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = self.make_config(tmpdir)
+            task_dir = Path(tmpdir) / "tasks" / "issue-399"
+            task_dir.mkdir(parents=True)
+            record = {
+                "created_at": "2026-05-21T05:11:00+00:00",
+                "repo": "ExampleOrg/project-core",
+                "item_type": "issue",
+                "target_index": "399",
+                "runtime_status": "succeeded",
+                "automation_decision": "hard-human-handoff",
+                "automation_status": "hard-human-handoff",
+            }
+            a2a_runner.write_json(task_dir / "record.json", record)
+            a2a_runner.write_text(task_dir / "review.md", "## Suggested Issue Comment\n\nTaking ownership.")
+            with mock.patch.object(a2a_runner, "TASK_ROOT", task_dir.parent):
+                task_dir = a2a_runner.ensure_task_under_root(
+                    a2a_runner.resolve_task("399", "ExampleOrg/project-core", "issue", latest=True)
+                )
+                payload = a2a_runner.mark_issue_human_handoff_taken(task_dir, config.username)
+
+        self.assertEqual(payload["human_handoff_status"], "taken-over")
+        self.assertEqual(payload["human_handoff_taken_by"], "Dev.User")
 
     def test_tracked_issue_includes_latest_triage_status(self):
         original_iter_records = a2a_runner.iter_records
@@ -823,6 +981,41 @@ mid-human-review
             self.assertEqual(job.kind, "issue")
             self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#398")
 
+    def test_discovery_track_only_records_snapshot_without_queueing_assigned_issue(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("ExampleOrg/project-core",),
+                    "monitor_limit": 10,
+                    "monitor_pr_reviews": False,
+                }
+            )
+            issue = {
+                "index": 398,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Assigned issue",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/issues/398",
+                "body": "Please check.",
+                "assignees": [{"login": "Dev.User"}],
+                "labels": [],
+                "comments": [],
+            }
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+
+            with mock.patch.object(a2a_runner, "list_open_issues", return_value=[{"index": 398}]), \
+                mock.patch.object(a2a_runner, "fetch_issue", return_value=issue), \
+                mock.patch.object(a2a_runner, "list_open_prs", return_value=[]):
+                events = bridge.discovery_once(queue_actions=False)
+
+            snapshot = bridge.store.tracking_snapshot("ExampleOrg/project-core", "issue", 398)
+            self.assertIsNotNone(snapshot)
+            self.assertEqual(snapshot["title"], "Assigned issue")
+            self.assertIn("tracking started", "\n".join(events))
+            self.assertNotIn("queued assigned issue triage", "\n".join(events))
+            self.assertEqual(bridge.jobs.qsize(), 0)
+
     def test_active_pr_poll_tracks_review_request_without_queueing_job(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
@@ -1071,6 +1264,162 @@ mid-human-review
             self.assertEqual(second_retry.status_code, 200)
             self.assertEqual(second_retry.body["status"], "duplicate")
             self.assertEqual(bridge.store.job_dict_for_key(job.dedupe_key)["retry_count"], 1)
+
+    def test_manual_pr_review_action_allows_failed_retry_after_review_request_clears(self):
+        action = a2a_runner.pr_review_manual_action_for_item(
+            "ExampleOrg/project-core",
+            450,
+            {"head_sha": "abc123"},
+            {
+                "created_by_me": False,
+                "assigned_to_me": False,
+                "review_requested_from_me": False,
+                "participating": True,
+                "related_to_me": True,
+            },
+            {},
+            {"status": "failed", "retry_count": 0},
+        )
+
+        self.assertTrue(action["available"])
+        self.assertTrue(action["retry"])
+        self.assertEqual(action["reason"], "failed review can be retried")
+
+    def test_manual_pr_review_action_allows_local_draft_rerun(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "draft"
+            task_dir.mkdir()
+            record = {
+                "repo": "ExampleOrg/project-core",
+                "item_type": "pull_request",
+                "target_index": "450",
+                "head_sha": "abc123",
+                "runtime_status": "succeeded",
+                "runtime_used": "codex",
+                "posted": False,
+            }
+            try:
+                a2a_runner.iter_records = lambda: [(task_dir, record)]
+                review_status = a2a_runner.review_status_for_item(
+                    "ExampleOrg/project-core",
+                    "pull_request",
+                    450,
+                    "abc123",
+                )
+                action = a2a_runner.pr_review_manual_action_for_item(
+                    "ExampleOrg/project-core",
+                    450,
+                    {"head_sha": "abc123"},
+                    {
+                        "created_by_me": False,
+                        "assigned_to_me": False,
+                        "review_requested_from_me": False,
+                        "participating": True,
+                        "related_to_me": True,
+                    },
+                    review_status,
+                    {"status": "done", "retry_count": 0},
+                )
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+        self.assertTrue(action["available"])
+        self.assertTrue(action["retry"])
+        self.assertEqual(action["reason"], "local review draft can be rerun")
+
+    def test_manual_pr_review_queue_retries_done_local_draft_job(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            task_dir = Path(tmpdir) / "draft"
+            task_dir.mkdir()
+            record = {
+                "repo": "ExampleOrg/project-core",
+                "item_type": "pull_request",
+                "target_index": "450",
+                "head_sha": "abc123",
+                "runtime_status": "succeeded",
+                "runtime_used": "codex",
+                "posted": False,
+            }
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="manual-ExampleOrg-project-core-450-abc123",
+                event_type="pr_review_manual",
+                dedupe_key="ExampleOrg/project-core#450@abc123",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=450,
+                title="Needs review",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                head_sha="abc123",
+            )
+            bridge.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "done", "done")
+            bridge.store.reserve_or_retry_job(job, retry_limit=0)
+            bridge.store.update_job(job.dedupe_key, "done")
+            try:
+                a2a_runner.iter_records = lambda: [(task_dir, record)]
+                response = bridge._queue_job(job, "manual rerun")
+                job_status = bridge.store.job_status_for_key(job.dedupe_key)
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+            self.assertEqual(response.status_code, 202)
+            self.assertTrue(response.body["retry"])
+            self.assertEqual(job_status, "queued")
+
+    def test_stale_old_head_review_job_does_not_hide_current_head_review_action(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 450,
+                    "title": "Needs review",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                    "state": "open",
+                    "author": "Other.User",
+                    "head": "feature/review",
+                    "head_sha": "new-head",
+                    "requested_reviewers": ["Dev.User"],
+                    "reviews": [],
+                    "review_comments": [],
+                    "comments": [],
+                }
+            )
+            old_job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="manual-ExampleOrg-project-core-450-old-head",
+                event_type="pr_review_manual",
+                dedupe_key="ExampleOrg/project-core#450@old-head",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=450,
+                title="Needs review",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                head_sha="old-head",
+            )
+            bridge.store.record_delivery(old_job.delivery_id, old_job.event_type, old_job.dedupe_key, "queued", "queued")
+            bridge.store.reserve_or_retry_job(old_job, retry_limit=0)
+            bridge.store.update_job(old_job.dedupe_key, "needs_human_review")
+
+            config = bridge.config
+            items = bridge.store.tracked_items_dicts(
+                10,
+                "pull_request",
+                "review_requested",
+                config.username,
+                config.username_aliases,
+                config.own_branch_prefixes,
+                "open",
+            )
+
+            self.assertEqual(items[0]["job_status"]["status"], "needs_human_review")
+            self.assertTrue(items[0]["pr_review_action"]["available"])
+            self.assertEqual(items[0]["pr_review_action"]["reason"], "review requested")
+            self.assertEqual(items[0]["pr_review_action"]["head_sha"], "new-head")
 
     def test_manual_pr_review_action_hides_when_retry_limit_reached(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1674,6 +2023,85 @@ Still valid and should be assigned.
         self.assertIn("When the manifest says the inline diff is complete", prompt)
         self.assertIn("do not claim missing, unavailable, or truncated diff evidence", prompt)
         self.assertIn("Do not mention local task package paths", prompt)
+        self.assertIn("code-reviewer PR output contract", prompt)
+        self.assertIn("`SHIP` / `BLOCK` / `NEEDS-HUMAN`", prompt)
+        self.assertIn("## Review Gates", prompt)
+
+    def test_normalize_verdict_accepts_code_reviewer_decisions(self):
+        self.assertEqual(a2a_runner.normalize_verdict("`SHIP` - no blocking findings"), "Approve")
+        self.assertEqual(a2a_runner.normalize_verdict("`BLOCK` - required gate failed"), "Request Changes")
+        self.assertEqual(a2a_runner.normalize_verdict("`NEEDS-HUMAN` - owner call needed"), "Comment")
+        self.assertEqual(
+            a2a_runner.normalize_verdict("| Decision | `SHIP` / `BLOCK` / `NEEDS-HUMAN` |"),
+            "Comment",
+        )
+        self.assertEqual(a2a_runner.normalize_verdict("No blocking findings."), "Comment")
+
+    def test_extract_section_accepts_nested_headings(self):
+        review = "# PR Review\n\n### Findings\n\nNo blocking findings.\n\n### Review Gates\n\nPASS\n"
+
+        self.assertEqual(a2a_runner.extract_section(review, "Findings"), "No blocking findings.")
+
+    def test_format_pr_comment_preserves_code_reviewer_report(self):
+        report = """# PR Review
+## Suggested PR Comment
+## PR Review
+
+| Field | Value |
+|-------|-------|
+| Decision | `BLOCK` |
+
+### Findings
+- `[blocking]` `a.py:1` Bad.
+
+### Verdict
+`BLOCK` - Bad.
+"""
+
+        self.assertEqual(a2a_runner.format_pr_comment(report), a2a_runner.extract_suggested_comment(report))
+
+    def test_format_pr_comment_builds_code_reviewer_fallback(self):
+        review = """# PR Review
+## Findings
+No blocking findings.
+
+## Verification Notes
+- Reviewed PR diff.
+
+## Verdict
+Approve
+"""
+
+        comment = a2a_runner.format_pr_comment(review)
+
+        self.assertIn("## PR Review", comment)
+        self.assertIn("| Decision | `SHIP` |", comment)
+        self.assertIn("### Review Gates", comment)
+        self.assertIn("### Coverage And Risk", comment)
+        self.assertNotIn("## Automated PR Review", comment)
+
+    def test_format_pr_comment_replaces_ambiguous_code_reviewer_template_decision(self):
+        review = """# PR Review
+## Suggested PR Comment
+## PR Review
+
+| Field | Value |
+|-------|-------|
+| Decision | `SHIP` / `BLOCK` / `NEEDS-HUMAN` |
+| Confidence | Medium |
+
+### Findings
+No blocking findings.
+
+### Verdict
+Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
+"""
+
+        comment = a2a_runner.format_pr_comment(review)
+
+        self.assertIn("## PR Review", comment)
+        self.assertIn("| Decision | `NEEDS-HUMAN` |", comment)
+        self.assertNotIn("| Decision | `SHIP` / `BLOCK` / `NEEDS-HUMAN` |", comment)
 
     def test_low_confidence_request_changes_review_is_not_auto_postable(self):
         review = """# PR Review
@@ -1687,6 +2115,27 @@ Still valid and should be assigned.
 
 ### Verification
 - The prompt-provided diff was truncated and the full diff.patch artifact was not available.
+"""
+
+        self.assertTrue(a2a_runner.pr_review_low_confidence_reason(review))
+
+    def test_code_reviewer_block_review_low_confidence_is_not_auto_postable(self):
+        review = """# PR Review
+## Suggested PR Comment
+## PR Review
+
+| Field | Value |
+|-------|-------|
+| Decision | `BLOCK` |
+
+### Findings
+- `[blocking]` `a.py:1` Bad.
+
+### Verification
+- The prompt-provided diff was truncated and the full diff.patch artifact was not available.
+
+### Verdict
+`BLOCK` - Bad.
 """
 
         self.assertTrue(a2a_runner.pr_review_low_confidence_reason(review))
@@ -1719,11 +2168,50 @@ Still valid and should be assigned.
             saved_review = (task_dir / "review.md").read_text(encoding="utf-8")
             saved_record = a2a_runner.load_json(task_dir / "record.json")
 
-        self.assertIn("## Automated PR Review", payload["suggested_comment"])
+        self.assertIn("## PR Review", payload["suggested_comment"])
+        self.assertIn("| Decision | `NEEDS-HUMAN` |", payload["suggested_comment"])
         self.assertIn("Original finding.", payload["comment_body"])
         self.assertIn("Edited comment.", saved["comment_body"])
         self.assertIn("Edited comment.", saved_review)
         self.assertIn("review_edited_at", saved_record)
+
+    def test_task_review_payload_preserves_new_pr_review_heading(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "task"
+            task_dir.mkdir()
+            record = {
+                "task_id": "task",
+                "repo": "ExampleOrg/project-core",
+                "item_type": "pull_request",
+                "target_index": "503",
+                "runtime_status": "succeeded",
+                "posted": False,
+            }
+            a2a_runner.write_json(task_dir / "record.json", record)
+            a2a_runner.write_text(
+                task_dir / "review.md",
+                "# PR Review\n\n"
+                "## Suggested PR Comment\n\n"
+                "## PR Review\n\n"
+                "| Field | Value |\n"
+                "|-------|-------|\n"
+                "| Decision | `NEEDS-HUMAN` |\n\n"
+                "### Findings\n"
+                "No blocking findings.\n",
+            )
+
+            payload = a2a_runner.task_review_payload(task_dir)
+            saved = a2a_runner.save_task_suggested_comment(
+                task_dir,
+                "## PR Review\n\n| Field | Value |\n|-------|-------|\n| Decision | `SHIP` |\n\n### Findings\nNo blocking findings.",
+            )
+            saved_review = (task_dir / "review.md").read_text(encoding="utf-8")
+
+        self.assertIn("## PR Review", payload["suggested_comment"])
+        self.assertIn("| Decision | `NEEDS-HUMAN` |", payload["suggested_comment"])
+        self.assertIn("| Decision | `SHIP` |", saved["suggested_comment"])
+        self.assertIn("| Decision | `SHIP` |", saved_review)
+        self.assertNotIn("| Decision | `NEEDS-HUMAN` |", saved_review)
 
     def test_posting_low_confidence_review_normalizes_record_to_succeeded(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1809,10 +2297,45 @@ Still valid and should be assigned.
 
         self.assertNotIn('review.review_decision', priority_tags)
         self.assertIn('review.review_decision', review_flag)
+        self.assertIn("review.posted && review.reviewed", review_flag)
         self.assertIn('decision === "approved" ? "approved" : "reviewed"', review_flag)
         self.assertIn("work-card-review-flag", review_flag)
         self.assertNotIn('tags.push(["agent"', priority_tags)
         self.assertNotIn("review_requested_from_me", priority_tags)
+
+    def test_local_review_drafts_stay_actionable_until_posted(self):
+        ui = a2a_runner.load_ui_html()
+        board_start = ui.index("const boardColumnFor =")
+        board_end = ui.index("const cardRelationClass =", board_start)
+        board_logic = ui[board_start:board_end]
+        attention_start = ui.index("const attentionReason =")
+        attention_end = ui.index("const attentionNeeded =", attention_start)
+        attention_logic = ui[attention_start:attention_end]
+
+        self.assertIn("review.posted && review.reviewed", board_logic)
+        self.assertIn('review.state === "local" && !review.posted', attention_logic)
+        self.assertIn("Review draft ready", attention_logic)
+        self.assertIn("Post draft", ui)
+        self.assertIn("Edit draft", ui)
+        self.assertIn("data-post-draft", ui)
+        self.assertIn("data-open-draft", ui)
+        self.assertIn("postTaskDraft", ui)
+        self.assertIn("openDraftTask", ui)
+
+    def test_opening_unlisted_draft_preserves_loaded_task_ref(self):
+        ui = a2a_runner.load_ui_html()
+        state_start = ui.index("const state =")
+        state_end = ui.index("const boardColumns =", state_start)
+        draft_start = ui.index("const draftCandidates =")
+        draft_end = ui.index("async function postTaskDraft", draft_start)
+        draft_logic = ui[draft_start:draft_end]
+
+        self.assertIn("loadedDraftRef", ui[state_start:state_end])
+        self.assertIn("const rememberLoadedDraft =", draft_logic)
+        self.assertIn("state.loadedDraftRef = taskRef", draft_logic)
+        self.assertIn("rememberLoadedDraft(task, taskRef)", draft_logic)
+        self.assertIn("if (state.loadedDraftRef) return state.loadedDraftRef", draft_logic)
+        self.assertIn("!state.loadedDraftRef && !drafts.some", draft_logic)
 
     def test_pr_cards_use_top_right_dot_only_for_agent_job_status(self):
         ui = a2a_runner.load_ui_html()
@@ -1915,6 +2438,100 @@ Still valid and should be assigned.
         self.assertIn("issueTriageBadge", ui)
         self.assertIn("scan-stale-issues", ui)
 
+    def test_taken_over_issues_do_not_need_attention(self):
+        ui = a2a_runner.load_ui_html()
+        attention_start = ui.index("const attentionReason =")
+        attention_end = ui.index("const attentionNeeded =", attention_start)
+        attention_logic = ui[attention_start:attention_end]
+
+        self.assertIn('item.item_type === "issue" && review.human_handoff_taken_at', attention_logic)
+        self.assertLess(
+            attention_logic.index('review.human_attention'),
+            attention_logic.index('review.human_handoff_taken_at'),
+        )
+
+    def test_issue_attention_panel_shows_assessment_and_analysis_action(self):
+        ui = a2a_runner.load_ui_html()
+        assessment_start = ui.index("const issueAssessmentDecision =")
+        assessment_end = ui.index("const attentionPriority =", assessment_start)
+        assessment_logic = ui[assessment_start:assessment_end]
+        inspector_start = ui.index("const attentionInspector =")
+        inspector_end = ui.index("function fitKanbanToWindow", inspector_start)
+        inspector_logic = ui[inspector_start:inspector_end]
+
+        self.assertIn("Final Assessment", assessment_logic)
+        self.assertIn("difficulty", assessment_logic)
+        self.assertIn("workload", assessment_logic)
+        self.assertIn("importance", assessment_logic)
+        self.assertIn("complexity", assessment_logic)
+        self.assertIn("hard", assessment_logic)
+        self.assertIn("mid", assessment_logic)
+        self.assertIn("easy", assessment_logic)
+        self.assertIn("assessment-status", assessment_logic)
+        self.assertIn("review.triage_scores", assessment_logic)
+        self.assertIn("issueAssessmentPanel(item)", inspector_logic)
+        self.assertIn("showIssueAssessment", inspector_logic)
+        self.assertIn("const reasonBlock = showIssueAssessment ? \"\"", inspector_logic)
+        self.assertIn("const detailList = showIssueAssessment ? \"\"", inspector_logic)
+        self.assertIn("Open analysis", inspector_logic)
+        self.assertIn("data-open-draft", inspector_logic)
+        self.assertIn("issueHumanHandoffTakeoverAllowed", inspector_logic)
+        self.assertIn("canTakeIssueHandoff", inspector_logic)
+        self.assertIn("Take over", inspector_logic)
+        self.assertIn("data-human-handoff", inspector_logic)
+        self.assertIn("data-handoff-repo", inspector_logic)
+        self.assertIn("data-handoff-number", inspector_logic)
+        self.assertIn("/api/issue-human-handoff", ui)
+        self.assertIn("Issue taken over", ui)
+        self.assertIn("Restart required", ui)
+        self.assertIn("review.task_dir", inspector_logic)
+
+    def test_issue_takeover_action_is_limited_to_handoff_states(self):
+        ui = a2a_runner.load_ui_html()
+        assessment_start = ui.index("const issueHumanHandoffTakeoverAllowed =")
+        assessment_end = ui.index("const attentionPriority =", assessment_start)
+        assessment_logic = ui[assessment_start:assessment_end]
+        inspector_start = ui.index("const attentionInspector =")
+        inspector_end = ui.index("function fitKanbanToWindow", inspector_start)
+        inspector_logic = ui[inspector_start:inspector_end]
+
+        self.assertIn('runtimeStatus === "failed"', assessment_logic)
+        self.assertIn('staleActionStatus === "failed"', assessment_logic)
+        self.assertIn('automation === "hard-human-handoff" || automation === "mid-human-review"', assessment_logic)
+        self.assertIn("const canTakeIssueHandoff =", inspector_logic)
+        self.assertIn("if (canTakeIssueHandoff)", inspector_logic)
+        self.assertNotIn("if (review.human_attention)", inspector_logic)
+
+    def test_attention_panel_can_switch_between_attention_items(self):
+        ui = a2a_runner.load_ui_html()
+        state_start = ui.index("const state =")
+        state_end = ui.index("const boardColumns =", state_start)
+        board_start = ui.index("async function loadBoard()")
+        board_end = ui.index("function bindQueueReviewButtons()", board_start)
+        board_logic = ui[board_start:board_end]
+        inspector_start = ui.index("const attentionNavigator =")
+        inspector_end = ui.index("function fitKanbanToWindow", inspector_start)
+        inspector_logic = ui[inspector_start:inspector_end]
+        bind_start = ui.index("function bindInspectorActionButtons()")
+        bind_end = ui.index("const jobTarget =", bind_start)
+        bind_logic = ui[bind_start:bind_end]
+
+        self.assertIn("selectedAttentionKey", ui[state_start:state_end])
+        self.assertIn("attentionKeys", ui[state_start:state_end])
+        self.assertIn("const attentionItems = sortedAttentionItems", board_logic)
+        self.assertIn("state.attentionKeys = attentionItems.map(itemKey)", board_logic)
+        self.assertIn("state.selectedAttentionKey = attentionItem ? itemKey(attentionItem) : \"\"", board_logic)
+        self.assertIn("attentionInspector(attentionItem, attentionIndex, attentionItems.length)", board_logic)
+        self.assertIn("data-attention-step", inspector_logic)
+        self.assertIn("attention-count", inspector_logic)
+        self.assertIn("async function switchAttentionItem", ui)
+        self.assertIn("state.selectedAttentionKey = keys[next]", ui)
+        self.assertIn("handleInspectorClick", bind_logic)
+        self.assertIn("[data-attention-step]", ui)
+        self.assertIn("[data-open-draft]", ui)
+        self.assertIn("[data-human-handoff]", ui)
+        self.assertIn('$("board-inspector").addEventListener("click"', ui)
+
     def test_dashboard_has_scheduled_monitoring_switch(self):
         ui = a2a_runner.load_ui_html()
 
@@ -1923,16 +2540,20 @@ Still valid and should be assigned.
         self.assertIn("/api/monitoring/toggle", ui)
         self.assertIn("Scheduled monitoring paused", ui)
 
-    def test_dashboard_refresh_button_resets_before_dashboard_reload(self):
+    def test_dashboard_refresh_button_polls_remote_without_running_jobs(self):
         ui = a2a_runner.load_ui_html()
         start = ui.index('$("scan-refresh").addEventListener')
         end = ui.index('$("draft-refresh").addEventListener', start)
         handler = ui[start:end]
 
-        self.assertIn('btn.textContent = "Scanning...";', handler)
-        self.assertIn('btn.textContent = original || "Refresh";', handler)
+        self.assertIn('btn.textContent = "Polling...";', handler)
+        self.assertIn("/api/monitor-once", handler)
+        self.assertIn("queue_actions:false", handler)
+        self.assertIn("queue_only:true", handler)
         self.assertIn("await refreshAll();", handler)
-        self.assertLess(handler.index('btn.textContent = original || "Refresh";'), handler.index("await refreshAll();"))
+        self.assertIn("Remote refresh complete", handler)
+        self.assertIn('btn.textContent = original || "Refresh";', handler)
+        self.assertNotIn("Scanning...", handler)
 
     def test_dashboard_toast_uses_top_layer_and_compact_job_target(self):
         ui = a2a_runner.load_ui_html()
@@ -1956,6 +2577,9 @@ Still valid and should be assigned.
         self.assertIn("Review requested from you", ui)
         self.assertIn("rel.review_requested_from_me || rel.assigned_to_me", ui)
         self.assertIn("Start AI review", ui)
+        self.assertIn("Rerun job", ui)
+        self.assertIn("reviewAction.retry", ui)
+        self.assertIn("Rerun the AI review job", ui)
         self.assertNotIn("prReviewCardAction", ui)
         self.assertNotIn("card-review-btn", ui)
         self.assertNotIn("work-card-actions", ui)
@@ -1979,7 +2603,8 @@ Still valid and should be assigned.
         self.assertIn("data-draft-ref", ui)
         self.assertIn("draftTaskRef", ui)
         self.assertIn("state.selectedDraftTask = taskId;", ui)
-        self.assertIn("renderDraftList();\n          await loadDraft(btn.dataset.draftRef || draftTaskRef(taskId));", ui)
+        self.assertIn("state.loadedDraftRef = btn.dataset.draftRef || draftTaskRef(taskId);", ui)
+        self.assertIn("renderDraftList();\n          await loadDraft(state.loadedDraftRef);", ui)
         self.assertIn("Failed to load draft package:", ui)
         self.assertIn("finally {\n        if (seq === state.draftLoadSeq) state.draftLoading = false;", ui)
         self.assertNotIn('state.view === "drafts" && !state.draftLoading', ui)

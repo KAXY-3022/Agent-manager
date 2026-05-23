@@ -1751,6 +1751,54 @@
       font-size: 11px;
       font-weight: 900;
     }
+    .attention-nav {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .attention-nav-wrap {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .attention-count {
+      min-width: 44px;
+      min-height: 25px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 8px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--muted);
+      background: color-mix(in srgb, var(--panel-alt) 58%, transparent);
+      font-size: 11px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+    .attention-nav-btn {
+      width: 26px;
+      height: 26px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      color: var(--ink);
+      background: color-mix(in srgb, var(--panel) 78%, transparent);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      font-size: 16px;
+      line-height: 1;
+      box-shadow: var(--shadow-tight);
+    }
+    .attention-nav-btn:hover {
+      border-color: var(--line-strong);
+      background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+    }
+    .attention-nav-btn:disabled {
+      cursor: not-allowed;
+      opacity: .42;
+    }
     .inspector-body {
       padding: 18px;
       overflow: auto;
@@ -1799,6 +1847,104 @@
       color: var(--ink);
       text-align: right;
     }
+    .assessment-panel {
+      margin: 14px 0 16px;
+      padding: 0;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--panel) 84%, transparent);
+      overflow: hidden;
+      box-shadow: var(--shadow-tight);
+    }
+    .assessment-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 12px 12px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+    .assessment-kicker {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    .assessment-status {
+      margin-top: 3px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 850;
+      line-height: 1.25;
+    }
+    .assessment-decision {
+      min-height: 23px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 10px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+      color: var(--ink);
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      font-size: 11px;
+      font-weight: 850;
+      white-space: nowrap;
+    }
+    .assessment-decision.hard {
+      border-color: color-mix(in srgb, var(--bad) 36%, var(--line));
+      background: color-mix(in srgb, var(--bad) 10%, transparent);
+      color: var(--bad);
+    }
+    .assessment-decision.mid {
+      border-color: color-mix(in srgb, var(--warn) 34%, var(--line));
+      background: color-mix(in srgb, var(--warn) 10%, transparent);
+      color: var(--warn);
+    }
+    .assessment-decision.easy {
+      border-color: color-mix(in srgb, var(--ok) 32%, var(--line));
+      background: color-mix(in srgb, var(--ok) 10%, transparent);
+      color: var(--ok);
+    }
+    .assessment-copy {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      margin: 0;
+      padding: 10px 12px 0;
+    }
+    .assessment-scores {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1px;
+      margin: 12px;
+      background: var(--line);
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .assessment-score {
+      min-width: 0;
+      padding: 8px;
+      border: 0;
+      border-radius: 0;
+      background: color-mix(in srgb, var(--panel-alt) 76%, var(--panel));
+    }
+    .assessment-score span {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+    }
+    .assessment-score strong {
+      display: block;
+      margin-top: 3px;
+      color: var(--ink);
+      font-size: 15px;
+      font-weight: 850;
+    }
     .open-review-btn {
       width: 100%;
       min-height: 44px;
@@ -1818,10 +1964,15 @@
     .inspector-actions.split {
       grid-template-columns: 1fr 1fr;
     }
-    .queue-review-btn {
+    .queue-review-btn,
+    .draft-post-btn,
+    .human-handoff-btn {
       cursor: pointer;
     }
-    .queue-review-btn:disabled {
+    .queue-review-btn:disabled,
+    .draft-post-btn:disabled,
+    .human-handoff-btn:disabled,
+    .open-review-secondary:disabled {
       cursor: not-allowed;
       opacity: .48;
       filter: grayscale(.25);
@@ -2212,7 +2363,7 @@
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script>
-    const state = { view: "board", itemFilter: "", stateFilter: "open", relationFilter: "", boardRelationFilter: "related", userNames: [], tasks: [], selectedDraftTask: "", draftDirty: false, draftLoadSeq: 0, draftLoading: false };
+    const state = { view: "board", itemFilter: "", stateFilter: "open", relationFilter: "", boardRelationFilter: "related", userNames: [], tasks: [], selectedDraftTask: "", loadedDraftRef: "", selectedAttentionKey: "", attentionKeys: [], draftDirty: false, draftLoadSeq: 0, draftLoading: false };
     const boardColumns = [
       {id:"wip", title:"WIP"},
       {id:"under_review", title:"Under Review"},
@@ -2276,7 +2427,7 @@
     const badge = (value) => `<span class="badge ${badgeClass(value)}">${esc(value || "-")}</span>`;
     const marker = (type) => type === "pull_request" ? "PR" : "issue";
     const taskMarker = (task) => task.item_type === "pull_request" ? "PR" : "Issue";
-    const taskTarget = (task) => `${repoShortName(task.repo)} ${taskMarker(task)}#${task.target_index || "?"}`;
+    const taskTarget = (task) => `${repoShortName(task.repo)} ${taskMarker(task)}#${task.target_index || task.target || "?"}`;
     const itemHref = (item) => item.url ? `<a class="target-link" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(marker(item.item_type))}#${esc(item.number)}</a>` : `${esc(marker(item.item_type))}#${esc(item.number)}`;
     const titleHref = (item) => item.url ? `<a href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(item.title || "(untitled)")}</a>` : esc(item.title || "(untitled)");
     const relationBadges = (item) => {
@@ -2374,8 +2525,10 @@
       if (jobStatus === "stale") return "AI review is stale";
       if (job.active) return "";
       if (item.item_type === "issue" && review.human_attention) return review.attention_reason || "Issue needs human attention";
+      if (item.item_type === "issue" && review.human_handoff_taken_at) return "";
       if (review.stale) return "Review is stale";
       if (review.current_head_failed) return "Current-head review failed";
+      if (item.item_type === "pull_request" && review.state === "local" && !review.posted) return "Review draft ready";
       if (item.item_type === "pull_request" && rel.created_by_me && latestExternalInteraction(item)) return "Your PR has external feedback";
       if (item.item_type === "pull_request" && (rel.review_requested_from_me || rel.assigned_to_me) && (item.pr_review_action || {}).available) return "Review requested from you";
       if (item.item_type === "issue" && item.snapshot && item.snapshot.has_open_linked_pr) return "";
@@ -2424,7 +2577,7 @@
       const rel = item.relationships || {};
       const review = item.review_status || {};
       if (item.item_type === "issue") return "";
-      if (review.reviewed && !review.stale) return "reviewed";
+      if (review.posted && review.reviewed && !review.stale) return "reviewed";
       if (rel.created_by_me) {
         if (!isWipTitle(item) && hasReviewRequest(item)) return "under_review";
         return "wip";
@@ -2554,7 +2707,7 @@
     };
     const prReviewFlag = (item) => {
       const review = item.review_status || {};
-      if (review.reviewed && !review.stale) {
+      if (review.posted && review.reviewed && !review.stale) {
         const decision = String(review.review_decision || "").toLowerCase();
         const label = decision === "approved" ? "approved" : "reviewed";
         return `<span class="work-card-review-flag ${esc(decision === "approved" ? "approved" : "reviewed")}">${esc(label)}</span>`;
@@ -2574,24 +2727,74 @@
       <div class="work-card-meta">${itemHref(item)} ${issueTriageBadge(item)} ${jobStatusIcon(item)} ${attentionBadge(item)}</div>
       <div class="issue-card-title">${titleHref(item)}</div>
     </div>`;
+    const issueAssessmentDecision = (review = {}) => {
+      const raw = String(review.automation_decision || review.automation_status || review.state || "").toLowerCase();
+      if (raw.includes("hard")) return {label: "Hard", tone: "hard", criteria: "Human handoff: scope, risk, or uncertainty is too high for autonomous implementation."};
+      if (raw.includes("mid")) return {label: "Mid", tone: "mid", criteria: "Plan review: implementation should wait for human review of scope, MVS, risks, and verification."};
+      if (raw.includes("easy") || raw.includes("auto-succeeded")) {
+        const gate = review.strict_easy_gate_passed ? "Strict easy gate passed." : "Strict easy gate not passed or not recorded.";
+        return {label: "Easy", tone: "easy", criteria: `Direct automation only when difficulty, workload, and complexity are each <= 2 and no high-risk flags are present. ${gate}`};
+      }
+      if (raw.includes("failed")) return {label: "Failed", tone: "hard", criteria: "The issue analysis job failed; inspect the task package or rerun the job."};
+      return {label: "Assess", tone: "mid", criteria: "Issue needs assessment before implementation or assignment."};
+    };
+    const issueAssessmentPanel = (item) => {
+      if (item.item_type !== "issue") return "";
+      const review = item.review_status || {};
+      const decision = issueAssessmentDecision(review);
+      const scores = review.triage_scores || {};
+      const scoreKeys = ["difficulty", "workload", "importance", "complexity"];
+      const scoreCards = scoreKeys.map(key => {
+        const value = scores[key] == null || scores[key] === "" ? "-" : scores[key];
+        return `<div class="assessment-score"><span>${esc(key)}</span><strong>${esc(value)}</strong></div>`;
+      }).join("");
+      const status = review.automation_status || review.automation_decision || review.state || "pending";
+      return `<div class="assessment-panel">
+        <div class="assessment-head">
+          <div>
+            <div class="assessment-kicker">Final Assessment</div>
+            <div class="assessment-status">${esc(status)}</div>
+          </div>
+          <span class="assessment-decision ${esc(decision.tone)}">${esc(decision.label)}</span>
+        </div>
+        <div class="assessment-copy">${esc(decision.criteria)}</div>
+        <div class="assessment-scores">${scoreCards}</div>
+      </div>`;
+    };
+    const issueHumanHandoffTakeoverAllowed = (review = {}) => {
+      const runtimeStatus = String(review.runtime_status || "").toLowerCase();
+      const staleActionStatus = String(review.stale_issue_action_status || "").toLowerCase();
+      const automation = String(review.automation_status || review.automation_decision || review.state || "").toLowerCase();
+      if (runtimeStatus === "failed" || staleActionStatus === "failed") return false;
+      return automation === "hard-human-handoff" || automation === "mid-human-review";
+    };
     const attentionPriority = (item) => {
       const reason = attentionReason(item);
       if (!reason) return -1;
       if (/failed/i.test(reason)) return 100;
+      if (/draft ready/i.test(reason)) return 98;
       if (/review requested/i.test(reason)) return 95;
       if (/external feedback/i.test(reason)) return 90;
       if (/stale|current-head/i.test(reason)) return 80;
       if (item.item_type === "issue") return 70;
       return 60;
     };
-    const pickAttentionItem = (items) => items
+    const sortedAttentionItems = (items) => items
       .filter(attentionNeeded)
       .sort((a, b) => {
         const priority = attentionPriority(b) - attentionPriority(a);
         if (priority) return priority;
         return itemAgeMinutes(b) - itemAgeMinutes(a);
-      })[0] || null;
-    const attentionInspector = (item) => {
+      });
+    const pickAttentionItem = (items) => sortedAttentionItems(items)[0] || null;
+    const attentionNavigator = (index, total) => total > 1
+      ? `<div class="attention-nav" aria-label="Attention item navigation">
+          <button class="attention-nav-btn" type="button" data-attention-step="-1" aria-label="Previous attention item" title="Previous attention item">‹</button>
+          <span class="attention-count">${esc(index + 1)} / ${esc(total)}</span>
+          <button class="attention-nav-btn" type="button" data-attention-step="1" aria-label="Next attention item" title="Next attention item">›</button>
+        </div>`
+      : `<span class="severity-pill">${esc(total || 1)} item</span>`;
+    const attentionInspector = (item, index = 0, total = 1) => {
       const snapshot = item.snapshot || {};
       const review = item.review_status || {};
       const reason = attentionReason(item);
@@ -2606,34 +2809,69 @@
         : "No external feedback detail";
       const reviewAction = item.pr_review_action || {};
       const canQueueReview = item.item_type === "pull_request" && reviewAction.available;
-      const actionText = canQueueReview
-        ? "Start an AI review when you are ready."
+      const draftRef = item.item_type === "pull_request" && review.state === "local" && !review.posted
+        ? (review.task_dir || review.task_id || "")
+        : "";
+      const hasLocalDraft = Boolean(draftRef);
+      const issueAnalysisRef = item.item_type === "issue" && review.task_dir ? (review.task_dir || review.task_id || "") : "";
+      const canTakeIssueHandoff = item.item_type === "issue" && review.human_attention && issueHumanHandoffTakeoverAllowed(review);
+      const reviewActionLabel = reviewAction.retry ? "Rerun job" : "Start AI review";
+      const actionText = issueAnalysisRef
+        ? (canTakeIssueHandoff ? "Take over to clear the handoff signal, or open the saved assessment first." : "Open the saved assessment package before deciding the next step.")
+        : hasLocalDraft
+        ? "Review the local draft, post it, or rerun the agent if the result is weak."
+        : canQueueReview
+        ? (reviewAction.retry ? "Rerun the AI review job when you are ready." : "Start an AI review when you are ready.")
         : item.item_type === "pull_request" && (item.relationships || {}).created_by_me
         ? "Review the feedback before the agent replies."
         : item.item_type === "issue"
           ? "Decide whether to assign, scope, or hand off this issue."
           : "Review the PR or rerun the agent job if needed.";
       const openLabel = item.item_type === "pull_request" ? "Open PR" : "Open issue";
-      const actionButtons = canQueueReview
-        ? `<div class="inspector-actions split">
-            <button class="open-review-btn queue-review-btn" type="button" data-queue-pr-review="${esc(item.repo)}#${esc(item.number)}">Start AI review</button>
-            ${item.url ? `<a class="open-review-btn open-review-secondary" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(openLabel)}</a>` : ""}
-          </div>`
-        : `<div class="inspector-actions">${item.url ? `<a class="open-review-btn" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(openLabel)}</a>` : `<div class="open-review-btn">${esc(openLabel)}</div>`}</div>`;
-      return `<div class="inspector-head">
-          <div><div class="inspector-kicker">Needs Attention</div><div class="inspector-target">${esc(targetLabel)}</div></div>
-          <span class="severity-pill">${esc(typeLabel)}</span>
-        </div>
-        <div class="inspector-body">
-          <div class="inspector-title">${esc(item.title || "(untitled)")}</div>
-          <div class="inspector-sub">${esc(actor)} · ${esc(age)} in queue</div>
-          <div class="inspector-reason">${esc(reason)}</div>
-          <div class="detail-list">
+      const actions = [];
+      if (hasLocalDraft) {
+        actions.push(`<button class="open-review-btn draft-post-btn" type="button" data-post-draft="${esc(draftRef)}">Post draft</button>`);
+        actions.push(`<button class="open-review-btn open-review-secondary" type="button" data-open-draft="${esc(draftRef)}">Edit draft</button>`);
+      }
+      if (issueAnalysisRef) {
+        if (canTakeIssueHandoff) {
+          actions.push(`<button class="open-review-btn human-handoff-btn" type="button" data-human-handoff="${esc(issueAnalysisRef)}" data-handoff-repo="${esc(item.repo)}" data-handoff-number="${esc(item.number)}">Take over</button>`);
+        }
+        const analysisClass = actions.length ? "open-review-btn open-review-secondary" : "open-review-btn";
+        actions.push(`<button class="${analysisClass}" type="button" data-open-draft="${esc(issueAnalysisRef)}">Open analysis</button>`);
+      }
+      if (canQueueReview) {
+        const queueClass = hasLocalDraft ? "open-review-btn open-review-secondary queue-review-btn" : "open-review-btn queue-review-btn";
+        actions.push(`<button class="${queueClass}" type="button" data-queue-pr-review="${esc(item.repo)}#${esc(item.number)}">${esc(reviewActionLabel)}</button>`);
+      }
+      if (item.url) {
+        const openClass = actions.length ? "open-review-btn open-review-secondary" : "open-review-btn";
+        actions.push(`<a class="${openClass}" href="${esc(item.url)}" target="_blank" rel="noreferrer">${esc(openLabel)}</a>`);
+      } else if (!actions.length) {
+        actions.push(`<div class="open-review-btn">${esc(openLabel)}</div>`);
+      }
+      const actionButtons = `<div class="inspector-actions${actions.length > 1 ? " split" : ""}">${actions.join("")}</div>`;
+      const showIssueAssessment = item.item_type === "issue" && Boolean(issueAnalysisRef);
+      const reasonBlock = showIssueAssessment ? "" : `<div class="inspector-reason">${esc(reason)}</div>`;
+      const detailList = showIssueAssessment ? "" : `<div class="detail-list">
             <div class="detail-row"><span>State</span><strong>${esc(stateLabel)}</strong></div>
             <div class="detail-row"><span>Relation</span><strong>${esc(cardRelationLabel(item))}</strong></div>
             <div class="detail-row"><span>Latest signal</span><strong>${latestText}</strong></div>
             <div class="detail-row"><span>Next action</span><strong>${esc(actionText)}</strong></div>
+          </div>`;
+      return `<div class="inspector-head">
+          <div><div class="inspector-kicker">Needs Attention</div><div class="inspector-target">${esc(targetLabel)}</div></div>
+          <div class="attention-nav-wrap">
+            ${attentionNavigator(index, total)}
+            <span class="severity-pill">${esc(typeLabel)}</span>
           </div>
+        </div>
+        <div class="inspector-body">
+          <div class="inspector-title">${esc(item.title || "(untitled)")}</div>
+          <div class="inspector-sub">${esc(actor)} · ${esc(age)} in queue</div>
+          ${reasonBlock}
+          ${issueAssessmentPanel(item)}
+          ${detailList}
           ${actionButtons}
         </div>`;
     };
@@ -2814,7 +3052,12 @@
       const reviewing = (groups.reviewing || []).length;
       const reviewed = (groups.reviewed || []).length;
       const wip = (groups.wip || []).length;
-      const attentionItem = pickAttentionItem([...prItems, ...issueItems]);
+      const attentionItems = sortedAttentionItems([...prItems, ...issueItems]);
+      state.attentionKeys = attentionItems.map(itemKey);
+      let attentionIndex = state.selectedAttentionKey ? state.attentionKeys.indexOf(state.selectedAttentionKey) : -1;
+      if (attentionIndex < 0) attentionIndex = 0;
+      const attentionItem = attentionItems[attentionIndex] || null;
+      state.selectedAttentionKey = attentionItem ? itemKey(attentionItem) : "";
       const setText = (id, value) => { const node = $(id); if (node) node.textContent = value; };
       setText("stat-total-prs", totalPrs);
       setText("stat-total-prs-note", `${wip} waiting in WIP`);
@@ -2826,7 +3069,7 @@
       const workspace = document.querySelector(".board-workspace");
       if (workspace) workspace.classList.toggle("no-attention", !attentionItem);
       const inspector = $("board-inspector");
-      if (inspector) inspector.innerHTML = attentionItem ? attentionInspector(attentionItem) : "";
+      if (inspector) inspector.innerHTML = attentionItem ? attentionInspector(attentionItem, attentionIndex, attentionItems.length) : "";
       $("kanban-board").innerHTML = boardColumns.map(col => {
         const items = groups[col.id] || [];
         return `<section class="kanban-column lane-${esc(col.id)}">
@@ -2836,7 +3079,16 @@
       }).join("");
       $("kanban-issues").innerHTML = issueItems.length ? issueItems.map(item => issueCard(item)).join("") : '<div class="empty">No issues</div>';
       bindQueueReviewButtons();
+      bindInspectorActionButtons();
       requestAnimationFrame(fitKanbanToWindow);
+    }
+    async function switchAttentionItem(step) {
+      const keys = state.attentionKeys || [];
+      if (keys.length <= 1) return;
+      const current = Math.max(0, keys.indexOf(state.selectedAttentionKey));
+      const next = (current + step + keys.length) % keys.length;
+      state.selectedAttentionKey = keys[next];
+      await loadBoard();
     }
     function bindQueueReviewButtons() {
       document.querySelectorAll("[data-queue-pr-review]").forEach(btn => {
@@ -2866,6 +3118,82 @@
           }
         });
       });
+    }
+    function bindInspectorActionButtons() {}
+    async function handleInspectorClick(event) {
+      const root = $("board-inspector");
+      if (!root || !root.contains(event.target)) return;
+      const attentionBtn = event.target.closest("[data-attention-step]");
+      if (attentionBtn) {
+        event.preventDefault();
+        const step = Number(attentionBtn.dataset.attentionStep || "0");
+        attentionBtn.disabled = true;
+        try {
+          await switchAttentionItem(step);
+        } catch (err) {
+          toast(err.message);
+          attentionBtn.disabled = false;
+        }
+        return;
+      }
+      const openDraftBtn = event.target.closest("[data-open-draft]");
+      if (openDraftBtn) {
+        event.preventDefault();
+        const taskRef = openDraftBtn.dataset.openDraft || "";
+        if (!taskRef) return;
+        openDraftBtn.disabled = true;
+        try {
+          await openDraftTask(taskRef);
+        } catch (err) {
+          toast(err.message);
+          openDraftBtn.disabled = false;
+        }
+        return;
+      }
+      const postDraftBtn = event.target.closest("[data-post-draft]");
+      if (postDraftBtn) {
+        event.preventDefault();
+        const taskRef = postDraftBtn.dataset.postDraft || "";
+        if (!taskRef) return;
+        postDraftBtn.disabled = true;
+        try {
+          const posted = await postTaskDraft(taskRef);
+          if (!posted) postDraftBtn.disabled = false;
+        } catch (err) {
+          toast(err.message);
+          postDraftBtn.disabled = false;
+        }
+        return;
+      }
+      const handoffBtn = event.target.closest("[data-human-handoff]");
+      if (handoffBtn) {
+        event.preventDefault();
+        const taskRef = handoffBtn.dataset.humanHandoff || "";
+        const repo = handoffBtn.dataset.handoffRepo || "";
+        const number = Number(handoffBtn.dataset.handoffNumber || "0");
+        if (!taskRef) return;
+        if (!confirm("Mark this issue as taken over locally?")) return;
+        handoffBtn.disabled = true;
+        const original = handoffBtn.textContent;
+        handoffBtn.textContent = "Taking over...";
+        try {
+          const data = await api("/api/issue-human-handoff", {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body:JSON.stringify({task: taskRef, repo, number})
+          });
+          toast("Issue taken over", taskTarget(data.task || {}), "ok");
+          await refreshAll();
+        } catch (err) {
+          if (String(err.message || "") === "not found") {
+            toast("Restart required", "The running backend does not have the takeover endpoint yet.", "warn");
+          } else {
+            toast(err.message);
+          }
+          handoffBtn.disabled = false;
+          handoffBtn.textContent = original;
+        }
+      }
     }
     const jobTarget = (job) => {
       const key = String(job.dedupe_key || "");
@@ -2922,8 +3250,28 @@
       const draft = draftByTaskId(taskId);
       return (draft && (draft.task_dir || draft.task_id)) || taskId || "";
     };
+    const rememberLoadedDraft = (task = {}, fallbackRef = "") => {
+      const ref = task.task_dir || fallbackRef || task.task_id || "";
+      const taskId = task.task_id || ref;
+      state.loadedDraftRef = ref;
+      state.selectedDraftTask = taskId;
+      if (!taskId || task.posted) return;
+      const normalized = {
+        ...task,
+        task_id: taskId,
+        task_dir: task.task_dir || ref,
+        target_index: task.target_index || task.target,
+        review_path: task.review_path || task.task_dir || ref
+      };
+      const tasks = state.tasks || [];
+      const existingIndex = tasks.findIndex(t => t.task_id === taskId || (normalized.task_dir && t.task_dir === normalized.task_dir));
+      if (existingIndex >= 0) tasks[existingIndex] = {...tasks[existingIndex], ...normalized};
+      else tasks.unshift(normalized);
+      state.tasks = tasks;
+    };
     const clearDraftPane = (message = "No unposted review drafts.") => {
       state.selectedDraftTask = "";
+      state.loadedDraftRef = "";
       state.draftDirty = false;
       $("draft-editor-title").textContent = "Select a draft";
       $("draft-post-state").outerHTML = '<span id="draft-post-state" class="badge">-</span>';
@@ -2941,7 +3289,7 @@
         clearDraftPane();
         return;
       }
-      if (!state.selectedDraftTask || !drafts.some(t => t.task_id === state.selectedDraftTask)) {
+      if (!state.selectedDraftTask || (!state.loadedDraftRef && !drafts.some(t => t.task_id === state.selectedDraftTask))) {
         state.selectedDraftTask = drafts[0].task_id;
       }
       list.innerHTML = drafts.map(t => `<button class="draft-item ${t.task_id === state.selectedDraftTask ? "active" : ""}" type="button" data-draft-task="${esc(t.task_id)}" data-draft-ref="${esc(t.task_dir || t.task_id)}">
@@ -2959,17 +3307,30 @@
           const taskId = btn.dataset.draftTask || "";
           if (!taskId) return;
           state.selectedDraftTask = taskId;
+          state.loadedDraftRef = btn.dataset.draftRef || draftTaskRef(taskId);
           state.draftDirty = false;
           renderDraftList();
-          await loadDraft(btn.dataset.draftRef || draftTaskRef(taskId));
+          await loadDraft(state.loadedDraftRef);
         });
       });
     };
     const selectedDraftRef = () => {
+      if (state.loadedDraftRef) return state.loadedDraftRef;
       if (state.selectedDraftTask) return draftTaskRef(state.selectedDraftTask);
       const first = draftCandidates()[0] || {};
       return first.task_dir || first.task_id || "";
     };
+    async function openDraftTask(taskRef) {
+      if (!taskRef) return;
+      setView("drafts", {skipDraftLoad: true});
+      await loadTasks();
+      const match = draftCandidates().find(t => t.task_dir === taskRef || t.task_id === taskRef);
+      state.selectedDraftTask = match ? match.task_id : "";
+      state.loadedDraftRef = taskRef;
+      state.draftDirty = false;
+      renderDraftList();
+      await loadDraft(taskRef);
+    }
     async function loadDraft(taskRef) {
       if (!taskRef) {
         clearDraftPane();
@@ -2987,7 +3348,7 @@
         const data = await api(`/api/task-review?task=${encodeURIComponent(taskRef)}`);
         if (seq !== state.draftLoadSeq) return;
         const task = data.task || {};
-        state.selectedDraftTask = task.task_id || taskRef;
+        rememberLoadedDraft(task, taskRef);
         state.draftDirty = false;
         renderDraftList();
         $("draft-editor-title").textContent = `${repoShortName(task.repo)} ${task.item_type === "pull_request" ? "PR" : "Issue"}#${task.target || "?"}`;
@@ -3020,6 +3381,7 @@
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({task: taskRef, suggested_comment: draftEditorValue()})
       });
+      rememberLoadedDraft(data.task || {}, taskRef);
       state.draftDirty = false;
       $("draft-preview").textContent = (data.task || {}).comment_body || "";
       toast("Draft saved");
@@ -3038,22 +3400,37 @@
         if (btn) btn.disabled = !loaded;
       });
     }
+    async function postTaskDraft(taskRef, suggestedComment = "") {
+      if (!taskRef) return false;
+      if (!confirm("Post this approved comment to Gitea?")) return false;
+      const body = {task: taskRef};
+      if (String(suggestedComment || "").trim()) body.suggested_comment = suggestedComment;
+      const data = await api("/api/task-review/post", {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify(body)
+      });
+      toast(`Posted comment to ${data.repo}#${data.target}`);
+      await refreshAll();
+      if (state.view === "drafts") {
+        const next = draftCandidates()[0];
+        if (next) {
+          state.selectedDraftTask = next.task_id;
+          state.loadedDraftRef = next.task_dir || next.task_id;
+          renderDraftList();
+          await loadDraft(state.loadedDraftRef);
+        } else {
+          clearDraftPane();
+        }
+      }
+      return true;
+    }
     async function postDraft() {
       const taskRef = selectedDraftRef();
       if (!taskRef) return;
-      if (!confirm("Post this approved comment to Gitea?")) return;
       setDraftButtons(true);
       try {
-        const data = await api("/api/task-review/post", {
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify({task: taskRef, suggested_comment: draftEditorValue()})
-        });
-        toast(`Posted comment to ${data.repo}#${data.target}`);
-        await Promise.all([loadTasks(), loadJobs(), loadDeliveries()]);
-        const nextTask = selectedDraftRef();
-        if (nextTask) await loadDraft(nextTask);
-        else clearDraftPane();
+        await postTaskDraft(taskRef, draftEditorValue());
       } finally {
         setDraftButtons(!selectedDraftRef());
       }
@@ -3070,14 +3447,14 @@
         await Promise.all([loadBoard(), loadChanges(), loadItems(), loadJobs(), loadDeliveries(), loadTasks()]);
       } catch (err) { toast(err.message); }
     }
-    function setView(view) {
+    function setView(view, options = {}) {
       state.view = view;
       document.querySelectorAll(".view").forEach(el => el.classList.toggle("hidden", el.id !== view));
       document.querySelectorAll(".nav button").forEach(btn => btn.classList.toggle("active", btn.dataset.view === view));
       const labels = {board: "Board", items: "PRs", drafts: "Review Drafts", changes: "Requests", jobs: "Queue"};
       $("view-title").textContent = labels[view] || document.querySelector(`.nav button[data-view="${view}"]`).textContent;
       if (view === "board") requestAnimationFrame(fitKanbanToWindow);
-      if (view === "drafts") openDraftView().catch(err => toast(err.message));
+      if (view === "drafts" && !options.skipDraftLoad) openDraftView().catch(err => toast(err.message));
     }
     document.querySelectorAll(".nav button").forEach(btn => btn.addEventListener("click", () => setView(btn.dataset.view)));
     document.querySelectorAll("[data-item-filter]").forEach(btn => btn.addEventListener("click", async () => {
@@ -3101,6 +3478,9 @@
         loadBoard();
       });
     }
+    $("board-inspector").addEventListener("click", event => {
+      handleInspectorClick(event).catch(err => toast(err.message));
+    });
     $("monitor-toggle").addEventListener("change", async (event) => {
       const enabled = event.target.checked;
       applyMonitoringState({enabled, controllable: true});
@@ -3132,11 +3512,16 @@
       const original = btn ? btn.textContent : "";
       if (btn) {
         btn.disabled = true;
-        btn.textContent = "Scanning...";
+        btn.textContent = "Polling...";
       }
       try {
-        const data = await api("/api/monitor-once", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({run_reviews:false})});
-        toast(`Monitor complete: ${data.events.length} change(s)`);
+        const data = await api("/api/monitor-once", {
+          method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({run_reviews:false, queue_actions:false, queue_only:true})
+        });
+        await refreshAll();
+        toast(`Remote refresh complete: ${data.events.length} change(s)`);
       } catch (err) {
         toast(err.message);
       } finally {
@@ -3145,7 +3530,6 @@
           btn.textContent = original || "Refresh";
         }
       }
-      await refreshAll();
     });
     $("draft-refresh").addEventListener("click", async () => {
       await loadTasks();
