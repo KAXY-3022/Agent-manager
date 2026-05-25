@@ -1353,9 +1353,107 @@
       padding: 18px 20px;
       color: #e5e7eb;
       background: #0b1220;
-      font: 13px/1.6 var(--mono);
-      white-space: pre-wrap;
+      font: 13px/1.58 var(--font);
       overflow-wrap: anywhere;
+    }
+    .draft-preview > *:first-child {
+      margin-top: 0;
+    }
+    .draft-preview > *:last-child {
+      margin-bottom: 0;
+    }
+    .draft-preview h1,
+    .draft-preview h2,
+    .draft-preview h3 {
+      margin: 18px 0 9px;
+      color: #f8fafc;
+      line-height: 1.15;
+      font-weight: 850;
+      letter-spacing: 0;
+    }
+    .draft-preview h1 { font-size: 21px; }
+    .draft-preview h2 { font-size: 17px; }
+    .draft-preview h3 { font-size: 15px; }
+    .draft-preview p {
+      margin: 0 0 11px;
+      color: #dbe4f0;
+    }
+    .draft-preview ul,
+    .draft-preview ol {
+      margin: 0 0 13px;
+      padding-left: 20px;
+      color: #dbe4f0;
+    }
+    .draft-preview li {
+      margin: 4px 0;
+      padding-left: 2px;
+    }
+    .draft-preview blockquote {
+      margin: 12px 0;
+      padding: 8px 12px;
+      border-left: 3px solid #f97316;
+      border-radius: 0 10px 10px 0;
+      background: rgba(249, 115, 22, .08);
+      color: #cbd5e1;
+    }
+    .draft-preview blockquote p {
+      margin-bottom: 6px;
+    }
+    .draft-preview code {
+      font: 12px/1.45 var(--mono);
+      color: #bfdbfe;
+      background: rgba(30, 41, 59, .9);
+      border: 1px solid rgba(148, 163, 184, .18);
+      border-radius: 6px;
+      padding: 1px 5px;
+    }
+    .draft-preview pre {
+      margin: 12px 0;
+      padding: 12px;
+      overflow: auto;
+      border: 1px solid rgba(148, 163, 184, .2);
+      border-radius: 12px;
+      background: #020617;
+    }
+    .draft-preview pre code {
+      display: block;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      color: #dbeafe;
+      white-space: pre;
+    }
+    .draft-preview table {
+      width: 100%;
+      margin: 12px 0;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .draft-preview th,
+    .draft-preview td {
+      border: 1px solid rgba(148, 163, 184, .22);
+      padding: 7px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .draft-preview th {
+      color: #f8fafc;
+      background: rgba(30, 41, 59, .72);
+      font-weight: 850;
+    }
+    .draft-preview a {
+      color: #93c5fd;
+      text-decoration: none;
+    }
+    .draft-preview a:hover {
+      text-decoration: underline;
+    }
+    .draft-preview-empty,
+    .draft-preview-message {
+      margin: 0;
+      color: #94a3b8;
+      font: 13px/1.58 var(--mono);
+      white-space: pre-wrap;
     }
     .draft-meta {
       display: grid;
@@ -2577,11 +2675,11 @@
           <section class="draft-pane draft-preview-pane">
             <div class="draft-pane-head">
               <div>
-                <div class="draft-pane-kicker">Exact Gitea Body</div>
-                <div class="draft-pane-title">Preview</div>
+                <div class="draft-pane-kicker">Gitea Comment</div>
+                <div class="draft-pane-title">Rendered preview</div>
               </div>
             </div>
-            <pre class="draft-preview" id="draft-preview">Select a draft to preview the posted comment.</pre>
+            <div class="draft-preview markdown-preview" id="draft-preview">Select a draft to preview the posted comment.</div>
           </section>
         </div>
       </section>
@@ -2643,6 +2741,152 @@
     applyTheme(preferredTheme());
     applySidebarCollapsed(preferredSidebarCollapsed());
     const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const markdownInline = (value) => {
+      const codeTokens = [];
+      let html = esc(value).replace(/`([^`\n]+)`/g, (_, code) => {
+        const token = `@@CODE${codeTokens.length}@@`;
+        codeTokens.push(`<code>${code}</code>`);
+        return token;
+      });
+      html = html
+        .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/__([^_\n]+)__/g, "<strong>$1</strong>")
+        .replace(/\*([^*\n]+)\*/g, "<em>$1</em>")
+        .replace(/_([^_\n]+)_/g, "<em>$1</em>")
+        .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+      return html.replace(/@@CODE(\d+)@@/g, (_, index) => codeTokens[Number(index)] || "");
+    };
+    const isMarkdownTableLine = (line) => /^\s*\|.*\|\s*$/.test(line || "");
+    const isMarkdownTableSeparator = (line) => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line || "");
+    const splitMarkdownTableRow = (line) => String(line || "").trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map(cell => cell.trim());
+    const renderMarkdownTable = (tableLines) => {
+      const header = splitMarkdownTableRow(tableLines[0] || "");
+      const rows = tableLines.slice(2).map(splitMarkdownTableRow);
+      const head = `<thead><tr>${header.map(cell => `<th>${markdownInline(cell)}</th>`).join("")}</tr></thead>`;
+      const body = rows.length
+        ? `<tbody>${rows.map(row => `<tr>${header.map((_, index) => `<td>${markdownInline(row[index] || "")}</td>`).join("")}</tr>`).join("")}</tbody>`
+        : "";
+      return `<table>${head}${body}</table>`;
+    };
+    const renderMarkdownPreview = (markdown) => {
+      const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+      const html = [];
+      let paragraph = [];
+      let listType = "";
+      let quote = [];
+      let code = [];
+      let inFence = false;
+      const flushParagraph = () => {
+        if (!paragraph.length) return;
+        html.push(`<p>${markdownInline(paragraph.join(" "))}</p>`);
+        paragraph = [];
+      };
+      const closeList = () => {
+        if (!listType) return;
+        html.push(`</${listType}>`);
+        listType = "";
+      };
+      const flushQuote = () => {
+        if (!quote.length) return;
+        html.push(`<blockquote>${quote.map(line => `<p>${markdownInline(line)}</p>`).join("")}</blockquote>`);
+        quote = [];
+      };
+      const closeFence = () => {
+        html.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`);
+        code = [];
+        inFence = false;
+      };
+      for (let index = 0; index < lines.length; index += 1) {
+        const line = lines[index];
+        const trimmed = line.trim();
+        if (/^(```|~~~)/.test(trimmed)) {
+          if (inFence) closeFence();
+          else {
+            flushParagraph();
+            closeList();
+            flushQuote();
+            inFence = true;
+            code = [];
+          }
+          continue;
+        }
+        if (inFence) {
+          code.push(line);
+          continue;
+        }
+        if (!trimmed) {
+          flushParagraph();
+          closeList();
+          flushQuote();
+          continue;
+        }
+        if (isMarkdownTableLine(line) && isMarkdownTableSeparator(lines[index + 1] || "")) {
+          flushParagraph();
+          closeList();
+          flushQuote();
+          const tableLines = [line, lines[index + 1]];
+          index += 2;
+          while (index < lines.length && isMarkdownTableLine(lines[index])) {
+            tableLines.push(lines[index]);
+            index += 1;
+          }
+          index -= 1;
+          html.push(renderMarkdownTable(tableLines));
+          continue;
+        }
+        if (/^---+$/.test(trimmed)) {
+          flushParagraph();
+          closeList();
+          flushQuote();
+          html.push("<hr>");
+          continue;
+        }
+        const heading = trimmed.match(/^(#{1,6})\s+(.+)$/);
+        if (heading) {
+          flushParagraph();
+          closeList();
+          flushQuote();
+          const level = Math.min(3, heading[1].length);
+          html.push(`<h${level}>${markdownInline(heading[2])}</h${level}>`);
+          continue;
+        }
+        const quoteMatch = line.match(/^\s*>\s?(.*)$/);
+        if (quoteMatch) {
+          flushParagraph();
+          closeList();
+          quote.push(quoteMatch[1]);
+          continue;
+        }
+        const listMatch = line.match(/^\s*(?:([-*+])|\d+\.)\s+(.+)$/);
+        if (listMatch) {
+          flushParagraph();
+          flushQuote();
+          const nextType = /^\s*\d+\.\s+/.test(line) ? "ol" : "ul";
+          if (listType && listType !== nextType) closeList();
+          if (!listType) {
+            listType = nextType;
+            html.push(`<${listType}>`);
+          }
+          html.push(`<li>${markdownInline(listMatch[2])}</li>`);
+          continue;
+        }
+        paragraph.push(trimmed);
+      }
+      if (inFence) closeFence();
+      flushParagraph();
+      closeList();
+      flushQuote();
+      return html.join("") || '<div class="draft-preview-empty">No preview content.</div>';
+    };
+    const setDraftPreview = (content, options = {}) => {
+      const preview = $("draft-preview");
+      if (!preview) return;
+      if (options.plain) {
+        preview.innerHTML = `<pre class="draft-preview-message">${esc(content)}</pre>`;
+        return;
+      }
+      preview.innerHTML = renderMarkdownPreview(content);
+    };
     const badgeClass = (value) => {
       const text = String(value ?? "").toLowerCase();
       if (["done", "open", "ok", "succeeded", "posted", "merged", "reviewed", "fixed"].includes(text)) return "ok";
@@ -3721,7 +3965,7 @@
       $("draft-post-state").outerHTML = '<span id="draft-post-state" class="badge">-</span>';
       $("draft-meta").innerHTML = "";
       $("draft-editor").value = "";
-      $("draft-preview").textContent = message;
+      setDraftPreview(message, {plain: true});
       setDraftButtons(true);
     };
     const renderDraftList = () => {
@@ -3788,7 +4032,7 @@
       $("draft-post-state").outerHTML = '<span id="draft-post-state" class="badge">loading</span>';
       $("draft-meta").innerHTML = "";
       $("draft-editor").value = "";
-      $("draft-preview").textContent = "Loading draft...";
+      setDraftPreview("Loading draft...", {plain: true});
       try {
         const data = await api(`/api/task-review?task=${encodeURIComponent(taskRef)}`);
         if (seq !== state.draftLoadSeq) return;
@@ -3805,12 +4049,12 @@
           <div class="draft-meta-row"><span>Reason</span><strong title="${esc(task.post_skipped_reason || "")}">${esc(task.post_skipped_reason || "ready for review")}</strong></div>
         `;
         $("draft-editor").value = task.suggested_comment || "";
-        $("draft-preview").textContent = task.comment_body || "";
+        setDraftPreview(task.comment_body || "");
         setDraftButtons(false);
       } catch (err) {
         if (seq === state.draftLoadSeq) {
           state.loadedDraftTask = null;
-          $("draft-preview").textContent = `Failed to load draft package:\n${taskRef}\n\n${err.message}`;
+          setDraftPreview(`Failed to load draft package:\n${taskRef}\n\n${err.message}`, {plain: true});
           $("draft-editor-title").textContent = "Draft load failed";
           toast(err.message);
           setDraftLoadedButtons(false);
@@ -3833,7 +4077,7 @@
       state.loadedDraftTask = task;
       rememberLoadedDraft(task, taskRef);
       state.draftDirty = false;
-      $("draft-preview").textContent = (data.task || {}).comment_body || "";
+      setDraftPreview((data.task || {}).comment_body || "");
       toast("Draft saved");
     }
     function setDraftApproveAutoFixButton(disabled) {
