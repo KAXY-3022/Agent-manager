@@ -2540,6 +2540,7 @@
       return "";
     };
     const attentionNeeded = (item) => Boolean(attentionReason(item));
+    const boardKeepsInactiveItem = (item) => item.state !== "open" && attentionNeeded(item);
     const attentionClass = (item) => attentionNeeded(item) ? " attention-needed" : "";
     const attentionBadge = (item) => {
       const reason = attentionReason(item);
@@ -2625,7 +2626,7 @@
         .filter(Boolean);
     };
     const boardVisibleItems = (items, indexes) => {
-      const active = items.filter(i => i.state === "open");
+      const active = items.filter(i => i.state === "open" || boardKeepsInactiveItem(i));
       const query = String((document.getElementById("board-search") || {}).value || "").trim().toLowerCase();
       const searched = query ? active.filter(item => [
         item.repo,
@@ -3053,8 +3054,8 @@
       </tr>`), "No tracked issues or PRs");
     }
     async function loadBoard() {
-      const data = await api("/api/items?limit=200&state=open");
-      const active = data.items.filter(i => i.state === "open");
+      const data = await api("/api/items?limit=200&state=all");
+      const active = data.items.filter(i => i.state === "open" || boardKeepsInactiveItem(i));
       const indexes = indexItems(active);
       const visible = boardVisibleItems(data.items, indexes);
       const prItems = visible.filter(item => item.item_type === "pull_request");

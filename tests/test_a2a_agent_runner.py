@@ -2777,6 +2777,8 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("AI job failed", ui)
         self.assertIn("Your PR has external feedback", ui)
         self.assertIn("review.human_attention", ui)
+        self.assertIn("boardKeepsInactiveItem", ui)
+        self.assertIn("/api/items?limit=200&state=all", ui)
         self.assertIn("issueTriageBadge", ui)
         self.assertIn("scan-stale-issues", ui)
 
