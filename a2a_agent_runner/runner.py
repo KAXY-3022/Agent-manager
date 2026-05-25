@@ -2272,12 +2272,20 @@ def extract_suggested_comment(review: str) -> str:
     markers = ("## Suggested Issue Comment", "## Suggested PR Comment")
     marker = next((item for item in markers if item in review), None)
     if marker is None:
-        return review.strip()
+        return unwrap_markdown_comment_fence(review)
     after = review.split(marker, 1)[1].strip()
     next_heading = internal_review_section_boundary(after)
     if next_heading is not None:
         after = after[: next_heading.start()].strip()
-    return after or review.strip()
+    return unwrap_markdown_comment_fence(after or review)
+
+
+def unwrap_markdown_comment_fence(markdown: str) -> str:
+    text = str(markdown or "").strip()
+    match = re.fullmatch(r"```(?:markdown|md)[ \t]*\n(?P<body>[\s\S]*?)\n```[ \t]*", text, flags=re.IGNORECASE)
+    if not match:
+        return text
+    return match.group("body").strip()
 
 
 def internal_review_section_boundary(markdown: str) -> re.Match[str] | None:

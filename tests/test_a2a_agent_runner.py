@@ -2410,6 +2410,27 @@ Still valid and should be assigned.
 
         self.assertEqual(a2a_runner.format_pr_comment(report), a2a_runner.extract_suggested_comment(report))
 
+    def test_format_pr_comment_unwraps_markdown_fenced_report(self):
+        report = """# PR Review
+## Suggested PR Comment
+```markdown
+## PR Review
+
+| Field | Value |
+|-------|-------|
+| Decision | `NEEDS-HUMAN` |
+
+### Findings
+- `[important]` `a.py:1` Confirm manually.
+```
+"""
+
+        comment = a2a_runner.format_pr_comment(report)
+
+        self.assertTrue(comment.startswith("## PR Review"))
+        self.assertIn("| Decision | `NEEDS-HUMAN` |", comment)
+        self.assertNotIn("```markdown", comment)
+
     def test_format_pr_comment_builds_code_reviewer_fallback(self):
         review = """# PR Review
 ## Findings
