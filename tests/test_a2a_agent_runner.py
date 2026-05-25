@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import threading
 import tempfile
 import unittest
@@ -3771,6 +3772,20 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
             a2a_runner.codex_model_args("gpt-5.5", "mid"),
             ["--model", "gpt-5.5", "-c", 'model_reasoning_effort="medium"'],
         )
+
+    def test_codex_model_args_include_configured_provider(self):
+        with mock.patch.dict(os.environ, {"A2A_CODEX_MODEL_PROVIDER": "cc-switch"}):
+            self.assertEqual(
+                a2a_runner.codex_model_args("gpt-5.5", "high"),
+                [
+                    "--model",
+                    "gpt-5.5",
+                    "-c",
+                    'model_provider="cc-switch"',
+                    "-c",
+                    'model_reasoning_effort="high"',
+                ],
+            )
 
     def test_job_model_policy_routes_issue_pr_and_comment_jobs(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -1103,10 +1103,13 @@ def find_runtime_bin(name: str) -> str | None:
     return None
 
 
-def codex_model_args(model: str = "", reasoning_effort: str = "") -> list[str]:
+def codex_model_args(model: str = "", reasoning_effort: str = "", model_provider: str = "") -> list[str]:
     args: list[str] = []
     if model:
         args.extend(["--model", model])
+    provider = str(model_provider or os.environ.get("A2A_CODEX_MODEL_PROVIDER", "")).strip()
+    if provider:
+        args.extend(["-c", f'model_provider="{codex_config_value(provider)}"'])
     effort = normalize_reasoning_effort(reasoning_effort)
     if effort:
         args.extend(["-c", f'model_reasoning_effort="{effort}"'])
@@ -2932,6 +2935,7 @@ def ensure_webhook_env(path: Path) -> bool:
             "A2A_GITEA_FAILED_RETRY_LIMIT=0",
             "A2A_GITEA_WEBHOOK_JOB_TIMEOUT_SECONDS=14400",
             "A2A_GITEA_WORKER_COUNT=2",
+            "A2A_CODEX_MODEL_PROVIDER=",
             "A2A_CODEX_ISSUE_MODEL=gpt-5.5",
             "A2A_CODEX_ISSUE_REASONING_EFFORT=xhigh",
             "A2A_CODEX_PR_REVIEW_MODEL=gpt-5.5",
@@ -3002,6 +3006,10 @@ def normalize_reasoning_effort(value: str) -> str:
     if normalized == "mid":
         return "medium"
     return normalized if normalized in {"low", "medium", "high", "xhigh"} else ""
+
+
+def codex_config_value(value: str) -> str:
+    return str(value or "").replace("\\", "\\\\").replace('"', '\\"')
 
 
 def bounded_int(value: str, default: int, minimum: int, maximum: int) -> int:
@@ -6692,6 +6700,7 @@ def config_summary(config: WebhookConfig) -> dict[str, Any]:
         "pr_auto_post": config.pr_auto_post,
         "worker_count": config.worker_count,
         "issue_model": config.issue_model,
+        "codex_model_provider": os.environ.get("A2A_CODEX_MODEL_PROVIDER", ""),
         "issue_reasoning_effort": config.issue_reasoning_effort,
         "pr_review_model": config.pr_review_model,
         "pr_review_reasoning_effort": config.pr_review_reasoning_effort,
