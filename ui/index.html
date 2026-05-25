@@ -1967,12 +1967,14 @@
     .queue-review-btn,
     .draft-post-btn,
     .issue-auto-fix-btn,
+    .pr-feedback-handled-btn,
     .human-handoff-btn {
       cursor: pointer;
     }
     .queue-review-btn:disabled,
     .draft-post-btn:disabled,
     .issue-auto-fix-btn:disabled,
+    .pr-feedback-handled-btn:disabled,
     .human-handoff-btn:disabled,
     .open-review-secondary:disabled {
       cursor: not-allowed;
@@ -2518,6 +2520,40 @@
       const latest = values[values.length - 1];
       return userMatchesName(latest.actor) ? null : latest;
     };
+    const prFeedbackStorageKey = (item) => `a2a-runner-pr-feedback:${itemKey(item)}`;
+    const latestExternalFeedbackKey = (item, latest = latestExternalInteraction(item)) => {
+      if (!latest) return "";
+      return [
+        itemKey(item),
+        latest.id || "",
+        latest.actor || "",
+        latest.state || "",
+        latest.updated || latest.created || ""
+      ].join("|");
+    };
+    const handledExternalFeedbackKey = (item) => {
+      try {
+        return localStorage.getItem(prFeedbackStorageKey(item)) || "";
+      } catch (_) {
+        return "";
+      }
+    };
+    const markExternalFeedbackHandled = (itemKeyValue, feedbackKey) => {
+      if (!itemKeyValue || !feedbackKey) return false;
+      try {
+        localStorage.setItem(`a2a-runner-pr-feedback:${itemKeyValue}`, feedbackKey);
+        return true;
+      } catch (_) {
+        return false;
+      }
+    };
+    const prExternalFeedbackNeedsAttention = (item) => {
+      const rel = item.relationships || {};
+      if (item.item_type !== "pull_request" || !rel.created_by_me) return false;
+      const latest = latestExternalInteraction(item);
+      const feedbackKey = latestExternalFeedbackKey(item, latest);
+      return Boolean(feedbackKey && handledExternalFeedbackKey(item) !== feedbackKey);
+    };
     const attentionReason = (item) => {
       if (String(item.state || "").toLowerCase() !== "open") return "";
       const rel = item.relationships || {};
@@ -2533,7 +2569,7 @@
       if (review.stale) return "Review is stale";
       if (review.current_head_failed) return "Current-head review failed";
       if (item.item_type === "pull_request" && review.state === "local" && !review.posted) return "Review draft ready";
-      if (item.item_type === "pull_request" && rel.created_by_me && latestExternalInteraction(item)) return "Your PR has external feedback";
+      if (prExternalFeedbackNeedsAttention(item)) return "Your PR has external feedback";
       if (item.item_type === "pull_request" && (rel.review_requested_from_me || rel.assigned_to_me) && (item.pr_review_action || {}).available) return "Review requested from you";
       if (item.item_type === "issue" && item.snapshot && item.snapshot.has_open_linked_pr) return "";
       if (item.item_type === "issue" && item.snapshot && item.snapshot.resolved_by_merged_prs) return "";
@@ -2817,6 +2853,8 @@
       const actor = item.author ? shortUser(item.author) : "-";
       const stateLabel = review.label || item.state || "open";
       const latest = latestExternalInteraction(item);
+      const latestFeedbackKey = latestExternalFeedbackKey(item, latest);
+      const canMarkPrFeedbackHandled = item.item_type === "pull_request" && latestFeedbackKey && prExternalFeedbackNeedsAttention(item);
       const latestText = latest
         ? `${esc(shortUser(latest.actor))} commented ${esc(formatAge(latest.updated || latest.created) || "recently")}`
         : "No external feedback detail";
@@ -2836,6 +2874,8 @@
         ? "Review the local draft, post it, or rerun the agent if the result is weak."
         : canQueueReview
         ? (reviewAction.retry ? "Rerun the AI review job when you are ready." : "Start an AI review when you are ready.")
+        : canMarkPrFeedbackHandled
+        ? "Mark this feedback as in progress so the dashboard stays quiet until new external feedback arrives."
         : item.item_type === "pull_request" && (item.relationships || {}).created_by_me
         ? "Review the feedback before the agent replies."
         : item.item_type === "issue"
@@ -2860,6 +2900,10 @@
       if (canQueueReview) {
         const queueClass = hasLocalDraft ? "open-review-btn open-review-secondary queue-review-btn" : "open-review-btn queue-review-btn";
         actions.push(`<button class="${queueClass}" type="button" data-queue-pr-review="${esc(item.repo)}#${esc(item.number)}">${esc(reviewActionLabel)}</button>`);
+      }
+      if (canMarkPrFeedbackHandled) {
+        const ackClass = actions.length ? "open-review-btn open-review-secondary pr-feedback-handled-btn" : "open-review-btn pr-feedback-handled-btn";
+        actions.push(`<button class="${ackClass}" type="button" data-ack-pr-feedback="${esc(itemKey(item))}" data-feedback-key="${esc(latestFeedbackKey)}">I'm on it</button>`);
       }
       if (item.url) {
         const openClass = actions.length ? "open-review-btn open-review-secondary" : "open-review-btn";
@@ -3179,6 +3223,25 @@
         } catch (err) {
           toast(err.message);
           postDraftBtn.disabled = false;
+        }
+        return;
+      }
+      const prFeedbackBtn = event.target.closest("[data-ack-pr-feedback]");
+      if (prFeedbackBtn) {
+        event.preventDefault();
+        const itemKeyValue = prFeedbackBtn.dataset.ackPrFeedback || "";
+        const feedbackKey = prFeedbackBtn.dataset.feedbackKey || "";
+        if (!itemKeyValue || !feedbackKey) return;
+        prFeedbackBtn.disabled = true;
+        const original = prFeedbackBtn.textContent;
+        prFeedbackBtn.textContent = "Marked";
+        if (markExternalFeedbackHandled(itemKeyValue, feedbackKey)) {
+          toast("Marked in progress", "This feedback is hidden until another external comment or review arrives.", "ok");
+          await Promise.all([loadBoard(), loadItems(), loadChanges()]);
+        } else {
+          toast("Could not save local acknowledgement");
+          prFeedbackBtn.disabled = false;
+          prFeedbackBtn.textContent = original;
         }
         return;
       }

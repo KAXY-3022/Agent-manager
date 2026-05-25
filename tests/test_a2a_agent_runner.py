@@ -2813,6 +2813,8 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn('reviewState !== "REQUEST_REVIEW"', ui)
         self.assertIn("AI job failed", ui)
         self.assertIn("Your PR has external feedback", ui)
+        self.assertIn("prExternalFeedbackNeedsAttention", ui)
+        self.assertIn("latestExternalFeedbackKey", ui)
         self.assertIn('item.state || "").toLowerCase() !== "open"', ui)
         self.assertIn("review.human_attention", ui)
         self.assertIn("/api/items?limit=200&state=open", ui)
@@ -2820,6 +2822,30 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertNotIn("/api/items?limit=200&state=all", ui)
         self.assertIn("issueTriageBadge", ui)
         self.assertIn("scan-stale-issues", ui)
+
+    def test_pr_external_feedback_can_be_marked_in_progress(self):
+        ui = a2a_runner.load_ui_html()
+        attention_start = ui.index("const attentionReason =")
+        attention_end = ui.index("const attentionNeeded =", attention_start)
+        attention_logic = ui[attention_start:attention_end]
+        inspector_start = ui.index("const attentionInspector =")
+        inspector_end = ui.index("function fitKanbanToWindow", inspector_start)
+        inspector_logic = ui[inspector_start:inspector_end]
+        bind_start = ui.index("async function handleInspectorClick")
+        bind_end = ui.index("const jobTarget =", bind_start)
+        bind_logic = ui[bind_start:bind_end]
+
+        self.assertIn("prFeedbackStorageKey", ui)
+        self.assertIn("markExternalFeedbackHandled", ui)
+        self.assertIn("localStorage.setItem", ui)
+        self.assertIn("prExternalFeedbackNeedsAttention(item)", attention_logic)
+        self.assertIn("canMarkPrFeedbackHandled", inspector_logic)
+        self.assertIn("I'm on it", inspector_logic)
+        self.assertIn("data-ack-pr-feedback", inspector_logic)
+        self.assertIn("data-feedback-key", inspector_logic)
+        self.assertIn("[data-ack-pr-feedback]", bind_logic)
+        self.assertIn("Marked in progress", bind_logic)
+        self.assertIn("another external comment or review arrives", bind_logic)
 
     def test_taken_over_issues_do_not_need_attention(self):
         ui = a2a_runner.load_ui_html()
@@ -2919,6 +2945,7 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("handleInspectorClick", bind_logic)
         self.assertIn("[data-attention-step]", ui)
         self.assertIn("[data-open-draft]", ui)
+        self.assertIn("[data-ack-pr-feedback]", ui)
         self.assertIn("[data-issue-auto-fix]", ui)
         self.assertIn("[data-human-handoff]", ui)
         self.assertIn('$("board-inspector").addEventListener("click"', ui)
