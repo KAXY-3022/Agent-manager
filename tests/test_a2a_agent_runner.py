@@ -245,6 +245,64 @@ class RunnerStateTests(unittest.TestCase):
             tracked = store.tracking_snapshot("ExampleOrg/project-core", "pull_request", 586)
             self.assertEqual(tracked.get("head_changed_at"), "2026-05-25T10:10:00+08:00")
 
+    def test_active_pr_poll_preserves_review_comments_when_fetch_fails(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 586,
+                    "title": "Needs feedback handling",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/586",
+                    "state": "open",
+                    "author": "Dev.User",
+                    "updated": "2026-05-25T10:00:00+08:00",
+                    "head": "feature/feedback",
+                    "head_sha": "abc123",
+                    "assignees": [],
+                    "labels": [],
+                    "requested_reviewers": [],
+                    "reviews": [],
+                    "review_request_hash": "",
+                    "review_comments": [
+                        {
+                            "id": "17840",
+                            "author": "Reviewer.User",
+                            "created": "2026-05-25T09:55:00+08:00",
+                            "updated": "2026-05-25T09:56:00+08:00",
+                            "body_hash": "inline-hash",
+                        }
+                    ],
+                    "review_comment_count": 1,
+                    "comments": [],
+                    "comment_count": 0,
+                }
+            )
+            pr_data = {
+                "index": 586,
+                "title": "Needs feedback handling",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/586",
+                "state": "open",
+                "author": {"login": "Dev.User"},
+                "updated": "2026-05-25T10:00:00+08:00",
+                "head": "feature/feedback",
+                "headSha": "abc123",
+                "assignees": [],
+                "reviews": [],
+                "comments": [],
+            }
+
+            with mock.patch.object(a2a_runner, "fetch_pr", return_value=pr_data), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", side_effect=RuntimeError("temporary")):
+                events = bridge._active_pr_repo("ExampleOrg/project-core")
+
+            tracked = bridge.store.tracking_snapshot("ExampleOrg/project-core", "pull_request", 586)
+
+        self.assertNotIn("review_comments: 1 -> 0", "\n".join(events))
+        self.assertEqual(tracked["review_comment_count"], 1)
+        self.assertEqual(tracked["review_comments"][0]["body_hash"], "inline-hash")
+
     def test_assigned_pr_counts_as_review_requested_relationship(self):
         pr_relationships = a2a_runner.snapshot_relationships(
             {
@@ -2941,11 +2999,16 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         bind_start = ui.index("async function handleInspectorClick")
         bind_end = ui.index("const jobTarget =", bind_start)
         bind_logic = ui[bind_start:bind_end]
+        key_start = ui.index("const externalFeedbackKey =")
+        key_end = ui.index("const handledExternalFeedbackKey =", key_start)
+        key_logic = ui[key_start:key_end]
 
         self.assertIn("prFeedbackStorageKey", ui)
         self.assertIn("feedbackInteractionValues", ui)
+        self.assertIn("latestExternalFeedback", ui)
         self.assertIn("latestExternalFeedbackTime", ui)
         self.assertIn("prFeedbackProgressTime", ui)
+        self.assertIn("feedbackCursorTime", ui)
         self.assertIn("snapshot.head_changed_at", ui)
         self.assertIn("body_hash", ui)
         self.assertIn('kind: "review_comment"', ui)
@@ -2953,7 +3016,10 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("localStorage.setItem", ui)
         self.assertIn("prExternalFeedbackNeedsAttention(item)", attention_logic)
         self.assertIn("progressTime > feedbackTime", ui)
-        self.assertIn("if (handledKey) return handledKey !== feedbackKey", ui)
+        self.assertIn("feedbackTime > handledTime", ui)
+        self.assertIn("feedbackTime === handledTime && handledKey !== feedbackKey", ui)
+        self.assertIn("JSON.stringify", key_logic)
+        self.assertNotIn("value.index", key_logic)
         self.assertIn("return Boolean(latestExternalInteraction(item))", ui)
         self.assertIn("canMarkPrFeedbackHandled", inspector_logic)
         self.assertIn("I'm on it", inspector_logic)

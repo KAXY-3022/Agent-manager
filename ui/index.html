@@ -2579,9 +2579,21 @@
       return Number.isFinite(parsed) ? parsed : 0;
     };
     const feedbackInteractionTime = (value) => parseFeedbackTime(value.updated || value.created);
-    const latestExternalFeedbackTime = (item) => feedbackInteractionValues(item)
-      .filter(value => !userMatchesName(value.actor))
-      .reduce((latest, value) => Math.max(latest, feedbackInteractionTime(value)), 0);
+    const compareFeedbackInteractions = (a, b) => {
+      const timeDiff = feedbackInteractionTime(a) - feedbackInteractionTime(b);
+      if (timeDiff) return timeDiff;
+      return String(a.id || "").localeCompare(String(b.id || ""));
+    };
+    const latestExternalFeedback = (item) => {
+      const values = feedbackInteractionValues(item).filter(value => !userMatchesName(value.actor));
+      if (!values.length) return null;
+      values.sort(compareFeedbackInteractions);
+      return values[values.length - 1];
+    };
+    const latestExternalFeedbackTime = (item) => {
+      const latest = latestExternalFeedback(item);
+      return latest ? feedbackInteractionTime(latest) : 0;
+    };
     const prFeedbackProgressTime = (item) => {
       const snapshot = item.snapshot || {};
       const headChangedAt = parseFeedbackTime(snapshot.head_changed_at);
@@ -2593,28 +2605,32 @@
     const latestExternalInteraction = (item) => {
       const values = feedbackInteractionValues(item);
       if (!values.length) return null;
-      values.sort((a, b) => {
-        const timeDiff = feedbackInteractionTime(a) - feedbackInteractionTime(b);
-        if (timeDiff) return timeDiff;
-        return String(a.id || "").localeCompare(String(b.id || ""));
-      });
+      values.sort(compareFeedbackInteractions);
       const latest = values[values.length - 1];
       return userMatchesName(latest.actor) ? null : latest;
     };
     const prFeedbackStorageKey = (item) => `a2a-runner-pr-feedback:${itemKey(item)}`;
     const externalFeedbackKey = (item) => {
-      const values = feedbackInteractionValues(item).filter(value => !userMatchesName(value.actor));
-      if (!values.length) return "";
-      const entries = values.map(value => [
-        value.kind || "",
-        value.index == null ? "" : value.index,
-        value.id || "",
-        value.actor || "",
-        value.state || "",
-        value.updated || value.created || "",
-        value.body_hash || ""
-      ].join(":")).sort();
-      return [itemKey(item), ...entries].join("|");
+      const latest = latestExternalFeedback(item);
+      if (!latest) return "";
+      return JSON.stringify({
+        v: 2,
+        item: itemKey(item),
+        time: feedbackInteractionTime(latest),
+        kind: latest.kind || "",
+        id: String(latest.id || ""),
+        actor: String(latest.actor || ""),
+        state: String(latest.state || ""),
+        body_hash: String(latest.body_hash || "")
+      });
+    };
+    const feedbackCursorTime = (value) => {
+      try {
+        const parsed = JSON.parse(value || "{}");
+        if (parsed && parsed.v === 2) return Number(parsed.time || 0) || 0;
+      } catch (_) {
+      }
+      return 0;
     };
     const handledExternalFeedbackKey = (item) => {
       try {
@@ -2641,6 +2657,8 @@
       const progressTime = prFeedbackProgressTime(item);
       if (feedbackTime && progressTime && progressTime > feedbackTime) return false;
       const handledKey = handledExternalFeedbackKey(item);
+      const handledTime = feedbackCursorTime(handledKey);
+      if (handledTime) return feedbackTime > handledTime || (feedbackTime === handledTime && handledKey !== feedbackKey);
       if (handledKey) return handledKey !== feedbackKey;
       return Boolean(latestExternalInteraction(item));
     };

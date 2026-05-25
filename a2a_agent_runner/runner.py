@@ -3217,16 +3217,47 @@ def compact_comments(values: Any) -> list[dict[str, Any]]:
             compact.append({"body_hash": sha256_text(str(comment))})
             continue
         body = str(comment.get("body") or "")
+        body_hash = sha256_text(body) if body else str(comment.get("body_hash") or sha256_text(body))
         compact.append(
             {
                 "id": comment.get("id"),
                 "author": user_name(comment.get("author") or comment.get("user") or comment.get("reviewer")),
                 "created": comment.get("created") or comment.get("created_at") or "",
                 "updated": comment.get("updated") or comment.get("updated_at") or "",
-                "body_hash": sha256_text(body),
+                "body_hash": body_hash,
             }
         )
     return compact
+
+
+def previous_snapshot_review_comments(previous_snapshot: dict[str, Any] | None) -> list[Any]:
+    values = (previous_snapshot or {}).get("review_comments")
+    if not isinstance(values, list):
+        return []
+    return [dict(value) if isinstance(value, dict) else value for value in values]
+
+
+def fetch_pr_review_comments_or_previous(
+    pull: str,
+    repo: str,
+    previous_snapshot: dict[str, Any] | None,
+    *,
+    timeout: int,
+    context: str,
+) -> list[Any]:
+    try:
+        return fetch_pr_review_comments(pull, repo, timeout=timeout)
+    except Exception as exc:
+        fallback = previous_snapshot_review_comments(previous_snapshot)
+        logging.warning(
+            "%s PR review comment fetch failed repo=%s pr=%s error=%s using_previous=%s",
+            context,
+            repo,
+            pull,
+            exc,
+            bool(fallback),
+        )
+        return fallback
 
 
 def compact_reviews(values: Any) -> list[dict[str, Any]]:
@@ -5229,17 +5260,14 @@ class WebhookBridge:
             open_pr_numbers.add(number)
             try:
                 pr_data = fetch_pr(str(number), repo_slug_value, timeout=10)
-                try:
-                    review_comments = fetch_pr_review_comments(str(number), repo_slug_value, timeout=10)
-                except Exception as exc:
-                    logging.warning(
-                        "discovery PR review comment fetch failed repo=%s pr=%s error=%s",
-                        repo_slug_value,
-                        number,
-                        exc,
-                    )
-                    review_comments = []
                 previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "pull_request", number)
+                review_comments = fetch_pr_review_comments_or_previous(
+                    str(number),
+                    repo_slug_value,
+                    previous_snapshot,
+                    timeout=10,
+                    context="discovery",
+                )
                 snapshot = annotate_snapshot_relationship_labels(
                     build_pr_snapshot(repo_slug_value, pr_data, review_comments),
                     self.config.username,
@@ -5360,17 +5388,14 @@ class WebhookBridge:
         for number in tracked_open_numbers:
             try:
                 pr_data = fetch_pr(str(number), repo_slug_value, timeout=10)
-                try:
-                    review_comments = fetch_pr_review_comments(str(number), repo_slug_value, timeout=10)
-                except Exception as exc:
-                    logging.warning(
-                        "active PR review comment fetch failed repo=%s pr=%s error=%s",
-                        repo_slug_value,
-                        number,
-                        exc,
-                    )
-                    review_comments = []
                 previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "pull_request", number)
+                review_comments = fetch_pr_review_comments_or_previous(
+                    str(number),
+                    repo_slug_value,
+                    previous_snapshot,
+                    timeout=10,
+                    context="active",
+                )
                 snapshot = annotate_snapshot_relationship_labels(
                     build_pr_snapshot(repo_slug_value, pr_data, review_comments),
                     self.config.username,
@@ -5484,16 +5509,14 @@ class WebhookBridge:
                 continue
             try:
                 pr_data = fetch_pr(str(number), repo_slug_value, timeout=10)
-                try:
-                    review_comments = fetch_pr_review_comments(str(number), repo_slug_value, timeout=10)
-                except Exception as exc:
-                    logging.warning(
-                        "discovery PR review comment fetch failed repo=%s pr=%s error=%s",
-                        repo_slug_value,
-                        number,
-                        exc,
-                    )
-                    review_comments = []
+                previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "pull_request", number)
+                review_comments = fetch_pr_review_comments_or_previous(
+                    str(number),
+                    repo_slug_value,
+                    previous_snapshot,
+                    timeout=10,
+                    context="discovery",
+                )
                 snapshot = annotate_snapshot_relationship_labels(
                     build_pr_snapshot(repo_slug_value, pr_data, review_comments),
                     self.config.username,
@@ -5516,17 +5539,14 @@ class WebhookBridge:
                 if not number:
                     continue
                 pr_data = fetch_pr(str(number), repo_slug_value)
-                try:
-                    review_comments = fetch_pr_review_comments(str(number), repo_slug_value, timeout=10)
-                except Exception as exc:
-                    logging.warning(
-                        "catch-up PR review comment fetch failed repo=%s pr=%s error=%s",
-                        repo_slug_value,
-                        number,
-                        exc,
-                    )
-                    review_comments = []
                 previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "pull_request", number)
+                review_comments = fetch_pr_review_comments_or_previous(
+                    str(number),
+                    repo_slug_value,
+                    previous_snapshot,
+                    timeout=10,
+                    context="catch-up",
+                )
                 snapshot = annotate_snapshot_relationship_labels(
                     build_pr_snapshot(repo_slug_value, pr_data, review_comments),
                     self.config.username,
@@ -5585,16 +5605,14 @@ class WebhookBridge:
 
     def queue_manual_pr_review(self, repo_slug_value: str, number: int) -> WebhookResponse:
         pr_data = fetch_pr(str(number), repo_slug_value, timeout=10)
-        try:
-            review_comments = fetch_pr_review_comments(str(number), repo_slug_value, timeout=10)
-        except Exception as exc:
-            logging.warning(
-                "manual PR review comment fetch failed repo=%s pr=%s error=%s",
-                repo_slug_value,
-                number,
-                exc,
-            )
-            review_comments = []
+        previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "pull_request", number)
+        review_comments = fetch_pr_review_comments_or_previous(
+            str(number),
+            repo_slug_value,
+            previous_snapshot,
+            timeout=10,
+            context="manual",
+        )
         snapshot = annotate_snapshot_relationship_labels(
             build_pr_snapshot(repo_slug_value, pr_data, review_comments),
             self.config.username,
