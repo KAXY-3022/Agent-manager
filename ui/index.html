@@ -2504,32 +2504,39 @@
       const value = String(name || "").toLowerCase();
       return Boolean(value && state.userNames.some(candidate => String(candidate || "").toLowerCase() === value));
     };
-    const latestExternalInteraction = (item) => {
+    const feedbackInteractionValues = (item) => {
       const snapshot = item.snapshot || {};
       const isFeedbackReview = (value) => {
         const reviewState = String(value.state || "").toUpperCase();
         return Boolean(reviewState && reviewState !== "REQUEST_REVIEW");
       };
-      const values = [
-        ...((snapshot.comments || []).map(value => ({...value, actor: value.author}))),
-        ...((snapshot.review_comments || []).map(value => ({...value, actor: value.author}))),
-        ...((snapshot.reviews || []).filter(isFeedbackReview).map(value => ({...value, actor: value.reviewer})))
+      return [
+        ...((snapshot.comments || []).map((value, index) => ({...value, kind: "comment", index, actor: value.author}))),
+        ...((snapshot.review_comments || []).map((value, index) => ({...value, kind: "review_comment", index, actor: value.author}))),
+        ...((snapshot.reviews || []).filter(isFeedbackReview).map((value, index) => ({...value, kind: "review", index, actor: value.reviewer})))
       ].filter(value => value && value.actor);
+    };
+    const latestExternalInteraction = (item) => {
+      const values = feedbackInteractionValues(item);
       if (!values.length) return null;
       values.sort((a, b) => String(a.updated || a.created || a.id || "").localeCompare(String(b.updated || b.created || b.id || "")));
       const latest = values[values.length - 1];
       return userMatchesName(latest.actor) ? null : latest;
     };
     const prFeedbackStorageKey = (item) => `a2a-runner-pr-feedback:${itemKey(item)}`;
-    const latestExternalFeedbackKey = (item, latest = latestExternalInteraction(item)) => {
-      if (!latest) return "";
-      return [
-        itemKey(item),
-        latest.id || "",
-        latest.actor || "",
-        latest.state || "",
-        latest.updated || latest.created || ""
-      ].join("|");
+    const externalFeedbackKey = (item) => {
+      const values = feedbackInteractionValues(item).filter(value => !userMatchesName(value.actor));
+      if (!values.length) return "";
+      const entries = values.map(value => [
+        value.kind || "",
+        value.index == null ? "" : value.index,
+        value.id || "",
+        value.actor || "",
+        value.state || "",
+        value.updated || value.created || "",
+        value.body_hash || ""
+      ].join(":")).sort();
+      return [itemKey(item), ...entries].join("|");
     };
     const handledExternalFeedbackKey = (item) => {
       try {
@@ -2550,9 +2557,11 @@
     const prExternalFeedbackNeedsAttention = (item) => {
       const rel = item.relationships || {};
       if (item.item_type !== "pull_request" || !rel.created_by_me) return false;
-      const latest = latestExternalInteraction(item);
-      const feedbackKey = latestExternalFeedbackKey(item, latest);
-      return Boolean(feedbackKey && handledExternalFeedbackKey(item) !== feedbackKey);
+      const feedbackKey = externalFeedbackKey(item);
+      if (!feedbackKey) return false;
+      const handledKey = handledExternalFeedbackKey(item);
+      if (handledKey) return handledKey !== feedbackKey;
+      return Boolean(latestExternalInteraction(item));
     };
     const attentionReason = (item) => {
       if (String(item.state || "").toLowerCase() !== "open") return "";
@@ -2853,7 +2862,7 @@
       const actor = item.author ? shortUser(item.author) : "-";
       const stateLabel = review.label || item.state || "open";
       const latest = latestExternalInteraction(item);
-      const latestFeedbackKey = latestExternalFeedbackKey(item, latest);
+      const latestFeedbackKey = externalFeedbackKey(item);
       const canMarkPrFeedbackHandled = item.item_type === "pull_request" && latestFeedbackKey && prExternalFeedbackNeedsAttention(item);
       const latestText = latest
         ? `${esc(shortUser(latest.actor))} commented ${esc(formatAge(latest.updated || latest.created) || "recently")}`
