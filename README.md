@@ -6,19 +6,19 @@ Local runner for basic Gitea issue and PR review automation, kept outside produc
 
 ### Attention board
 
-![Mock screenshot of the automation board with PR lanes and attention inspector](docs/dashboard-mock.svg)
+![Actual dashboard screenshot of the automation board with PR lanes and attention inspector](docs/dashboard-screenshot.png)
 
 ### Issue assessment
 
-![Mock screenshot of the issue inspector with linked PR and assessment actions](docs/issue-inspector-mock.svg)
+![Actual dashboard screenshot of the issue inspector with linked PR and assessment actions](docs/issue-assessment-screenshot.png)
 
 ### Review drafts
 
-![Mock screenshot of the review draft editor](docs/review-draft-mock.svg)
+![Actual dashboard screenshot of the review draft editor with rendered markdown preview](docs/review-drafts-screenshot.png)
 
 ### Queue and monitoring
 
-![Mock screenshot of queue, delivery, and monitor state](docs/queue-monitor-mock.svg)
+![Actual dashboard screenshot of queue and monitor state](docs/queue-monitor-screenshot.png)
 
 ## Quick Start
 
