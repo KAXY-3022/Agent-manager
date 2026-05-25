@@ -2649,8 +2649,9 @@ def approve_issue_auto_fix(task_dir: Path, config: WebhookConfig) -> dict[str, A
     blocker = issue_auto_fix_approval_blocker(record)
     if blocker:
         raise DemoError(blocker)
-    issue_path = task_dir / "issue.json"
-    issue_data = load_json(issue_path) if issue_path.exists() else fetch_issue(target, repo)
+    issue_data = fetch_issue(target, repo)
+    if normalized_snapshot_state(build_issue_snapshot(repo, issue_data)) != "open":
+        raise DemoError("issue is closed")
     review = review_path.read_text(encoding="utf-8").strip()
     _, gate_reasons, gate_metadata = issue_strict_easy_gate(review, issue_data)
     if gate_metadata.get("decision") != "easy-direct":
@@ -5609,6 +5610,12 @@ class WebhookBridge:
         number = first_int(target)
         if not number:
             return WebhookResponse(400, {"status": "not_available", "reason": "issue number missing"})
+        try:
+            issue_data = fetch_issue(str(number), repo_slug_value, timeout=10)
+        except Exception as exc:
+            return WebhookResponse(409, {"status": "not_available", "reason": f"issue state could not be verified: {exc}"})
+        if normalized_snapshot_state(build_issue_snapshot(repo_slug_value, issue_data)) != "open":
+            return WebhookResponse(409, {"status": "not_available", "reason": "issue is closed"})
         job = WebhookJob(
             kind="issue_auto_fix",
             delivery_id=f"issue-auto-fix-{owner}-{repo}-{number}",

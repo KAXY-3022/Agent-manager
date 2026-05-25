@@ -1103,16 +1103,17 @@ grep -nE '^[[:space:]]+email: ops@moras.ai$' pki/cluster-issuer.yaml
             a2a_runner.write_json(task_dir / "record.json", record)
             config = self.make_config(tmpdir)
 
-            with mock.patch.object(
-                a2a_runner,
-                "run_issue_auto_implementation",
-                return_value={
-                    "status": "succeeded",
-                    "stage": "done",
-                    "branch": "codex/issue-254-use-team-acme-email",
-                    "pull_request_number": "255",
-                },
-            ) as implementation:
+            with mock.patch.object(a2a_runner, "fetch_issue", return_value=issue), \
+                mock.patch.object(
+                    a2a_runner,
+                    "run_issue_auto_implementation",
+                    return_value={
+                        "status": "succeeded",
+                        "stage": "done",
+                        "branch": "codex/issue-254-use-team-acme-email",
+                        "pull_request_number": "255",
+                    },
+                ) as implementation:
                 payload = a2a_runner.approve_issue_auto_fix(task_dir, config)
 
             updated = a2a_runner.load_json(task_dir / "record.json")
@@ -1124,6 +1125,42 @@ grep -nE '^[[:space:]]+email: ops@moras.ai$' pki/cluster-issuer.yaml
             self.assertEqual(kwargs["repo"], "K2Lab/moras-composer")
             self.assertTrue(kwargs["gate_metadata"]["verification_command"].startswith("grep -nE"))
             self.assertIn("risk keywords present", "\n".join(updated["manual_auto_fix_gate_reasons"]))
+
+    def test_issue_auto_fix_rejects_closed_issue(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "K2Lab-moras-composer-issue-254"
+            task_dir.mkdir()
+            issue = {
+                "index": 254,
+                "state": "closed",
+                "author": {"login": "Other.User"},
+                "title": "Use team ACME email",
+                "url": "https://gitea.example.com/K2Lab/moras-composer/issues/254",
+                "body": "Production certificate notifications should use a team mailbox.",
+                "assignees": [{"login": "Dev.User"}],
+                "labels": [],
+                "comments": [],
+            }
+            record = {
+                "task_id": task_dir.name,
+                "repo": "K2Lab/moras-composer",
+                "item_type": "issue",
+                "target_index": "254",
+                "issue": "254",
+                "runtime_status": "succeeded",
+                "automation_decision": "easy-direct",
+                "automation_status": "easy-direct-blocked",
+                "posted": False,
+            }
+            a2a_runner.write_json(task_dir / "record.json", record)
+            a2a_runner.write_text(task_dir / "review.md", "# Agent Review\n\n## Automation Decision\neasy-direct\n")
+
+            with mock.patch.object(a2a_runner, "fetch_issue", return_value=issue), \
+                mock.patch.object(a2a_runner, "run_issue_auto_implementation") as implementation:
+                with self.assertRaisesRegex(a2a_runner.DemoError, "issue is closed"):
+                    a2a_runner.approve_issue_auto_fix(task_dir, self.make_config(tmpdir))
+
+            implementation.assert_not_called()
 
     def test_strict_easy_gate_rejects_risky_or_non_easy_review(self):
         review = """# Agent Review
@@ -2776,9 +2813,11 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn('reviewState !== "REQUEST_REVIEW"', ui)
         self.assertIn("AI job failed", ui)
         self.assertIn("Your PR has external feedback", ui)
+        self.assertIn('item.state || "").toLowerCase() !== "open"', ui)
         self.assertIn("review.human_attention", ui)
-        self.assertIn("boardKeepsInactiveItem", ui)
-        self.assertIn("/api/items?limit=200&state=all", ui)
+        self.assertIn("/api/items?limit=200&state=open", ui)
+        self.assertNotIn("boardKeepsInactiveItem", ui)
+        self.assertNotIn("/api/items?limit=200&state=all", ui)
         self.assertIn("issueTriageBadge", ui)
         self.assertIn("scan-stale-issues", ui)
 
