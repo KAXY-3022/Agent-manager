@@ -2717,6 +2717,24 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
 
         self.assertNotIn("cardLinks", issue_card)
 
+    def test_issue_inspector_renders_linked_pr_panel(self):
+        ui = a2a_runner.load_ui_html()
+        helper_start = ui.index("const issueLinkedPrUrl =")
+        helper_end = ui.index("const itemTinyLink =", helper_start)
+        helper_logic = ui[helper_start:helper_end]
+        inspector_start = ui.index("const attentionInspector =")
+        inspector_end = ui.index("function fitKanbanToWindow", inspector_start)
+        inspector_logic = ui[inspector_start:inspector_end]
+
+        self.assertIn("const issueLinkedPrItems =", helper_logic)
+        self.assertIn("snapshot.tracked_linked_prs", helper_logic)
+        self.assertIn("snapshot.linked_prs", helper_logic)
+        self.assertIn("Linked PR", helper_logic)
+        self.assertIn("None tracked", helper_logic)
+        self.assertIn("linked-pr-chip", helper_logic)
+        self.assertIn("issueLinkedPrPanel(item)", inspector_logic)
+        self.assertIn("${linkedPrBlock}", inspector_logic)
+
     def test_pr_cards_do_not_render_redundant_type_or_review_badges(self):
         ui = a2a_runner.load_ui_html()
         marker = "const compactStatusBadges ="

@@ -1847,6 +1847,62 @@
       color: var(--ink);
       text-align: right;
     }
+    .linked-pr-panel {
+      margin: 14px 0 0;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--panel) 84%, transparent);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .linked-pr-label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+    .linked-pr-list {
+      min-width: 0;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 6px;
+    }
+    .linked-pr-chip {
+      min-width: 0;
+      max-width: 100%;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 7px;
+      border: 1px solid color-mix(in srgb, var(--line-strong) 70%, transparent);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--panel-alt) 70%, transparent);
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 850;
+      text-decoration: none;
+      overflow: hidden;
+    }
+    .linked-pr-chip:hover {
+      border-color: var(--accent);
+    }
+    .linked-pr-chip-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .linked-pr-chip .badge {
+      flex: 0 0 auto;
+    }
+    .linked-pr-empty {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+    }
     .assessment-panel {
       margin: 14px 0 16px;
       padding: 0;
@@ -2727,6 +2783,51 @@
       !issueHasTrackedPr(item, indexes) &&
       !issueResolvedByMergedPrs(item)
     ));
+    const issueLinkedPrUrl = (item, pr) => {
+      if (pr.url) return pr.url;
+      if (!item.url || (pr.repo && pr.repo !== item.repo)) return "";
+      return item.url.replace(/\/issues\/\d+$/, `/pulls/${pr.number}`);
+    };
+    const issueLinkedPrItems = (item) => {
+      if (item.item_type !== "issue") return [];
+      const snapshot = item.snapshot || {};
+      const values = [];
+      const seen = new Set();
+      const add = (input) => {
+        const pr = typeof input === "object" && input ? input : {number: input};
+        const number = Number(pr.number || 0);
+        const repo = String(pr.repo || item.repo || "");
+        if (!repo || !Number.isFinite(number) || number <= 0) return;
+        const key = `${repo}:${number}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        values.push({
+          repo,
+          number,
+          state: String(pr.state || ""),
+          title: String(pr.title || ""),
+          url: issueLinkedPrUrl(item, {...pr, repo, number})
+        });
+      };
+      for (const pr of (snapshot.tracked_linked_prs || [])) add(pr);
+      for (const number of (snapshot.linked_prs || [])) add({repo: item.repo, number});
+      return values;
+    };
+    const issueLinkedPrPanel = (item) => {
+      if (item.item_type !== "issue") return "";
+      const prs = issueLinkedPrItems(item);
+      const content = prs.length
+        ? prs.map(pr => {
+          const label = `${pr.repo && pr.repo !== item.repo ? `${repoShortName(pr.repo)} ` : ""}PR#${pr.number}`;
+          const title = [label, pr.title, pr.state].filter(Boolean).join(" · ");
+          const chip = `<span class="linked-pr-chip-text">${esc(label)}</span>${pr.state ? badge(pr.state) : ""}`;
+          return pr.url
+            ? `<a class="linked-pr-chip" href="${esc(pr.url)}" target="_blank" rel="noreferrer" title="${esc(title)}">${chip}</a>`
+            : `<span class="linked-pr-chip" title="${esc(title)}">${chip}</span>`;
+        }).join("")
+        : `<span class="linked-pr-empty">None tracked</span>`;
+      return `<div class="linked-pr-panel"><span class="linked-pr-label">Linked PR</span><div class="linked-pr-list">${content}</div></div>`;
+    };
     const itemTinyLink = (item) => item ? itemHref(item) : "";
     const cardLinks = (item, indexes) => {
       const parts = [];
@@ -2947,6 +3048,7 @@
       }
       const actionButtons = `<div class="inspector-actions${actions.length > 1 ? " split" : ""}">${actions.join("")}</div>`;
       const showIssueAssessment = item.item_type === "issue" && Boolean(issueAnalysisRef);
+      const linkedPrBlock = issueLinkedPrPanel(item);
       const reasonBlock = showIssueAssessment ? "" : `<div class="inspector-reason">${esc(reason)}</div>`;
       const detailList = showIssueAssessment ? "" : `<div class="detail-list">
             <div class="detail-row"><span>State</span><strong>${esc(stateLabel)}</strong></div>
@@ -2965,6 +3067,7 @@
           <div class="inspector-title">${esc(item.title || "(untitled)")}</div>
           <div class="inspector-sub">${esc(actor)} · ${esc(age)} in queue</div>
           ${reasonBlock}
+          ${linkedPrBlock}
           ${issueAssessmentPanel(item)}
           ${detailList}
           ${actionButtons}
