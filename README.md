@@ -291,6 +291,10 @@ A2A_GITEA_OWN_BRANCH_PREFIXES=codex/
 A2A_GITEA_PR_REVIEW_POLL_SECONDS=0
 A2A_GITEA_WORKER_COUNT=2
 A2A_CODEX_MODEL_PROVIDER=
+A2A_CODEX_MODEL_PROVIDER_BASE_URL=
+A2A_CODEX_MODEL_PROVIDER_WIRE_API=responses
+A2A_CODEX_MODEL_PROVIDER_REQUIRES_OPENAI_AUTH=true
+A2A_CODEX_OPENAI_API_KEY=
 A2A_CODEX_ISSUE_MODEL=gpt-5.5
 A2A_CODEX_ISSUE_REASONING_EFFORT=xhigh
 A2A_CODEX_PR_REVIEW_MODEL=gpt-5.5
@@ -304,6 +308,8 @@ A2A_GITEA_MONITOR_PR_REVIEWS=true
 A2A_GITEA_DEFAULT_REVIEWERS=
 A2A_GITEA_STALE_ISSUE_CANDIDATES=
 ```
+
+Set `A2A_CODEX_MODEL_PROVIDER_BASE_URL` when jobs should use a custom Codex provider without depending on the active desktop provider. If `A2A_CODEX_OPENAI_API_KEY` is set, the runner passes it to `codex exec` as `OPENAI_API_KEY` only for the child process.
 
 If `A2A_GITEA_MONITOR_REPOS` or `A2A_GITEA_PR_REVIEW_POLL_REPOS` is omitted, the runner falls back to `A2A_GITEA_REPO`. Set repo lists to `local` to discover all Git repos under `A2A_WORKSPACE` from their `origin` remotes, or set an explicit comma-separated list such as `ExampleOrg/project-core,ExampleOrg/service-api`. Leaving the placeholder `owner/repo` means the monitor will not see project PR updates.
 

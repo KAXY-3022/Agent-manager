@@ -36,7 +36,7 @@ import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 
 RUNNER_HOME = Path(
@@ -300,12 +300,14 @@ def run_command(
     input_text: str | None = None,
     timeout: int | None = None,
     cancel_event: threading.Event | None = None,
+    env: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[str]:
     if cancel_event is not None:
         try:
             process = subprocess.Popen(
                 args,
                 cwd=str(cwd),
+                env=dict(env) if env is not None else None,
                 stdin=subprocess.PIPE if input_text is not None else None,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -359,6 +361,7 @@ def run_command(
         return subprocess.run(
             args,
             cwd=str(cwd),
+            env=dict(env) if env is not None else None,
             input=input_text,
             text=True,
             capture_output=True,
@@ -1103,13 +1106,49 @@ def find_runtime_bin(name: str) -> str | None:
     return None
 
 
+CODEX_PROVIDER_KEY_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+
+def codex_provider_config_args(provider: str) -> list[str]:
+    base_url = os.environ.get("A2A_CODEX_MODEL_PROVIDER_BASE_URL", "").strip()
+    if not base_url:
+        return []
+    if not provider or not CODEX_PROVIDER_KEY_RE.fullmatch(provider):
+        raise DemoError(f"A2A_CODEX_MODEL_PROVIDER must be a simple provider key when provider base URL is configured: {provider!r}")
+    wire_api = os.environ.get("A2A_CODEX_MODEL_PROVIDER_WIRE_API", "responses").strip() or "responses"
+    requires_auth = parse_bool(os.environ.get("A2A_CODEX_MODEL_PROVIDER_REQUIRES_OPENAI_AUTH", "true"))
+    return [
+        "-c",
+        f'model_providers.{provider}.name="{codex_config_value(provider)}"',
+        "-c",
+        f'model_providers.{provider}.base_url="{codex_config_value(base_url)}"',
+        "-c",
+        f'model_providers.{provider}.wire_api="{codex_config_value(wire_api)}"',
+        "-c",
+        f"model_providers.{provider}.requires_openai_auth={'true' if requires_auth else 'false'}",
+    ]
+
+
+def codex_runtime_env() -> dict[str, str] | None:
+    api_key = os.environ.get("A2A_CODEX_OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return None
+    env = dict(os.environ)
+    env["OPENAI_API_KEY"] = api_key
+    env.pop("A2A_CODEX_OPENAI_API_KEY", None)
+    return env
+
+
 def codex_model_args(model: str = "", reasoning_effort: str = "", model_provider: str = "") -> list[str]:
     args: list[str] = []
     if model:
         args.extend(["--model", model])
     provider = str(model_provider or os.environ.get("A2A_CODEX_MODEL_PROVIDER", "")).strip()
+    if not provider and os.environ.get("A2A_CODEX_MODEL_PROVIDER_BASE_URL", "").strip():
+        provider = "custom"
     if provider:
         args.extend(["-c", f'model_provider="{codex_config_value(provider)}"'])
+        args.extend(codex_provider_config_args(provider))
     effort = normalize_reasoning_effort(reasoning_effort)
     if effort:
         args.extend(["-c", f'model_reasoning_effort="{effort}"'])
@@ -1192,6 +1231,7 @@ Prepared a local task package. No automated review was run.
             input_text=prompt,
             timeout=timeout,
             cancel_event=cancel_event,
+            env=codex_runtime_env(),
         )
         if result.returncode != 0:
             stderr = (result.stderr or "").strip()
@@ -1390,6 +1430,7 @@ def run_issue_auto_implementation(
         cwd=worktree,
         input_text=prompt,
         timeout=timeout,
+        env=codex_runtime_env(),
     )
     if result.returncode != 0:
         return {
@@ -2936,6 +2977,10 @@ def ensure_webhook_env(path: Path) -> bool:
             "A2A_GITEA_WEBHOOK_JOB_TIMEOUT_SECONDS=14400",
             "A2A_GITEA_WORKER_COUNT=2",
             "A2A_CODEX_MODEL_PROVIDER=",
+            "A2A_CODEX_MODEL_PROVIDER_BASE_URL=",
+            "A2A_CODEX_MODEL_PROVIDER_WIRE_API=responses",
+            "A2A_CODEX_MODEL_PROVIDER_REQUIRES_OPENAI_AUTH=true",
+            "A2A_CODEX_OPENAI_API_KEY=",
             "A2A_CODEX_ISSUE_MODEL=gpt-5.5",
             "A2A_CODEX_ISSUE_REASONING_EFFORT=xhigh",
             "A2A_CODEX_PR_REVIEW_MODEL=gpt-5.5",
@@ -6701,6 +6746,7 @@ def config_summary(config: WebhookConfig) -> dict[str, Any]:
         "worker_count": config.worker_count,
         "issue_model": config.issue_model,
         "codex_model_provider": os.environ.get("A2A_CODEX_MODEL_PROVIDER", ""),
+        "codex_model_provider_base_url": os.environ.get("A2A_CODEX_MODEL_PROVIDER_BASE_URL", ""),
         "issue_reasoning_effort": config.issue_reasoning_effort,
         "pr_review_model": config.pr_review_model,
         "pr_review_reasoning_effort": config.pr_review_reasoning_effort,

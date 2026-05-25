@@ -3773,13 +3773,14 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("incomplete or unverified diff evidence", deliveries[0]["summary"])
 
     def test_codex_model_args_include_model_and_reasoning_effort(self):
-        self.assertEqual(
-            a2a_runner.codex_model_args("gpt-5.5", "mid"),
-            ["--model", "gpt-5.5", "-c", 'model_reasoning_effort="medium"'],
-        )
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(
+                a2a_runner.codex_model_args("gpt-5.5", "mid"),
+                ["--model", "gpt-5.5", "-c", 'model_reasoning_effort="medium"'],
+            )
 
     def test_codex_model_args_include_configured_provider(self):
-        with mock.patch.dict(os.environ, {"A2A_CODEX_MODEL_PROVIDER": "cc-switch"}):
+        with mock.patch.dict(os.environ, {"A2A_CODEX_MODEL_PROVIDER": "cc-switch"}, clear=True):
             self.assertEqual(
                 a2a_runner.codex_model_args("gpt-5.5", "high"),
                 [
@@ -3791,6 +3792,43 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
                     'model_reasoning_effort="high"',
                 ],
             )
+
+    def test_codex_model_args_include_inline_provider_config(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "A2A_CODEX_MODEL_PROVIDER": "custom",
+                "A2A_CODEX_MODEL_PROVIDER_BASE_URL": "https://console.viiideo.com/newapi/v1",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                a2a_runner.codex_model_args("gpt-5.5", "high"),
+                [
+                    "--model",
+                    "gpt-5.5",
+                    "-c",
+                    'model_provider="custom"',
+                    "-c",
+                    'model_providers.custom.name="custom"',
+                    "-c",
+                    'model_providers.custom.base_url="https://console.viiideo.com/newapi/v1"',
+                    "-c",
+                    'model_providers.custom.wire_api="responses"',
+                    "-c",
+                    "model_providers.custom.requires_openai_auth=true",
+                    "-c",
+                    'model_reasoning_effort="high"',
+                ],
+            )
+
+    def test_codex_runtime_env_maps_private_key_to_openai_api_key(self):
+        with mock.patch.dict(os.environ, {"A2A_CODEX_OPENAI_API_KEY": "secret-value"}, clear=True):
+            env = a2a_runner.codex_runtime_env()
+
+        self.assertIsNotNone(env)
+        self.assertEqual(env["OPENAI_API_KEY"], "secret-value")
+        self.assertNotIn("A2A_CODEX_OPENAI_API_KEY", env)
 
     def test_job_model_policy_routes_issue_pr_and_comment_jobs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
