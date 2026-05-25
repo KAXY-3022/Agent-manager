@@ -3355,6 +3355,23 @@ def build_pr_snapshot(repo: str, pr_data: dict[str, Any], review_comments: list[
     }
 
 
+def enrich_pr_snapshot_progress_metadata(
+    previous_snapshot: dict[str, Any] | None,
+    snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    if str(snapshot.get("item_type") or "") != "pull_request":
+        return snapshot
+    enriched = dict(snapshot)
+    previous_head = str((previous_snapshot or {}).get("head_sha") or "")
+    current_head = str(enriched.get("head_sha") or "")
+    previous_changed_at = str((previous_snapshot or {}).get("head_changed_at") or "")
+    if current_head and previous_head and current_head != previous_head:
+        enriched["head_changed_at"] = str(enriched.get("updated") or previous_changed_at or "")
+    else:
+        enriched["head_changed_at"] = previous_changed_at or str(enriched.get("head_changed_at") or "")
+    return enriched
+
+
 def tracking_hashes(snapshot: dict[str, Any]) -> tuple[str, str, str]:
     content_hash = sha256_text(stable_json(tracking_content_payload(snapshot)))
     review_hash = str(snapshot.get("review_request_hash") or "")
@@ -3458,6 +3475,7 @@ def job_kind_label(kind: str) -> str:
 def tracking_content_payload(snapshot: dict[str, Any]) -> dict[str, Any]:
     payload = dict(snapshot)
     payload.pop("author", None)
+    payload.pop("head_changed_at", None)
     payload.pop("linked_issues", None)
     payload.pop("linked_prs", None)
     payload.pop("tracked_linked_prs", None)
@@ -4376,14 +4394,21 @@ class WebhookStateStore:
         if not repo or not item_type or not number:
             return None
         item_key = tracking_item_key(repo, item_type, number)
-        content_hash, review_hash, comment_hash = tracking_hashes(snapshot)
-        snapshot_json = stable_json(snapshot)
         now = int(time.time())
         with self.connect() as conn:
             existing = conn.execute(
                 "SELECT content_hash, snapshot_json FROM tracked_items WHERE item_key = ?",
                 (item_key,),
             ).fetchone()
+            previous_snapshot = None
+            if existing is not None:
+                try:
+                    previous_snapshot = json.loads(existing[1])
+                except json.JSONDecodeError:
+                    previous_snapshot = {}
+            snapshot = enrich_pr_snapshot_progress_metadata(previous_snapshot, snapshot)
+            content_hash, review_hash, comment_hash = tracking_hashes(snapshot)
+            snapshot_json = stable_json(snapshot)
             if existing is None:
                 conn.execute(
                     """
@@ -4413,10 +4438,6 @@ class WebhookStateStore:
                 self._insert_tracking_event(conn, item_key, repo, item_type, number, "first_seen", summary, now)
                 return summary
             previous_hash, previous_json = existing
-            try:
-                previous_snapshot = json.loads(previous_json)
-            except json.JSONDecodeError:
-                previous_snapshot = {}
             previous_payload_hash = sha256_text(stable_json(tracking_content_payload(previous_snapshot)))
             if previous_hash == content_hash or previous_payload_hash == content_hash:
                 conn.execute(

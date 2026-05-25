@@ -179,6 +179,72 @@ class RunnerStateTests(unittest.TestCase):
         self.assertTrue(items[0]["relationships"]["created_by_me"])
         self.assertTrue(items[0]["relationships"]["related_to_me"])
 
+    def test_pr_tracking_records_head_changed_at_only_when_head_moves(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = self.make_store(tmpdir)
+            snapshot = {
+                "repo": "ExampleOrg/project-core",
+                "item_type": "pull_request",
+                "number": 586,
+                "title": "Needs feedback handling",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/586",
+                "state": "open",
+                "author": "Dev.User",
+                "updated": "2026-05-25T10:00:00+08:00",
+                "head": "codex/issue-581-user-scoped-trace-auth",
+                "head_sha": "abc123",
+                "assignees": [],
+                "reviews": [],
+                "review_comments": [],
+                "comments": [],
+            }
+
+            store.record_tracking_snapshot(snapshot)
+            tracked = store.tracking_snapshot("ExampleOrg/project-core", "pull_request", 586)
+            self.assertEqual(tracked.get("head_changed_at"), "")
+
+            same_head_with_comment = {
+                **snapshot,
+                "updated": "2026-05-25T10:05:00+08:00",
+                "comments": [
+                    {
+                        "author": "Reviewer.User",
+                        "created": "2026-05-25T10:05:00+08:00",
+                        "id": 1,
+                        "body_hash": "feedback",
+                    }
+                ],
+            }
+            store.record_tracking_snapshot(same_head_with_comment)
+            tracked = store.tracking_snapshot("ExampleOrg/project-core", "pull_request", 586)
+            self.assertEqual(tracked.get("head_changed_at"), "")
+
+            new_head = {
+                **same_head_with_comment,
+                "updated": "2026-05-25T10:10:00+08:00",
+                "head_sha": "def456",
+            }
+            store.record_tracking_snapshot(new_head)
+            tracked = store.tracking_snapshot("ExampleOrg/project-core", "pull_request", 586)
+            self.assertEqual(tracked.get("head_changed_at"), "2026-05-25T10:10:00+08:00")
+
+            same_new_head_with_comment = {
+                **new_head,
+                "updated": "2026-05-25T10:15:00+08:00",
+                "comments": [
+                    *new_head["comments"],
+                    {
+                        "author": "Reviewer.User",
+                        "created": "2026-05-25T10:15:00+08:00",
+                        "id": 2,
+                        "body_hash": "more-feedback",
+                    },
+                ],
+            }
+            store.record_tracking_snapshot(same_new_head_with_comment)
+            tracked = store.tracking_snapshot("ExampleOrg/project-core", "pull_request", 586)
+            self.assertEqual(tracked.get("head_changed_at"), "2026-05-25T10:10:00+08:00")
+
     def test_assigned_pr_counts_as_review_requested_relationship(self):
         pr_relationships = a2a_runner.snapshot_relationships(
             {
@@ -2837,6 +2903,7 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("prExternalFeedbackNeedsAttention", ui)
         self.assertIn("externalFeedbackKey", ui)
         self.assertIn("feedbackInteractionValues", ui)
+        self.assertIn("prFeedbackProgressTime", ui)
         self.assertIn('item.state || "").toLowerCase() !== "open"', ui)
         self.assertIn("review.human_attention", ui)
         self.assertIn("/api/items?limit=200&state=open", ui)
@@ -2859,11 +2926,15 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
 
         self.assertIn("prFeedbackStorageKey", ui)
         self.assertIn("feedbackInteractionValues", ui)
+        self.assertIn("latestExternalFeedbackTime", ui)
+        self.assertIn("prFeedbackProgressTime", ui)
+        self.assertIn("snapshot.head_changed_at", ui)
         self.assertIn("body_hash", ui)
         self.assertIn('kind: "review_comment"', ui)
         self.assertIn("markExternalFeedbackHandled", ui)
         self.assertIn("localStorage.setItem", ui)
         self.assertIn("prExternalFeedbackNeedsAttention(item)", attention_logic)
+        self.assertIn("progressTime > feedbackTime", ui)
         self.assertIn("if (handledKey) return handledKey !== feedbackKey", ui)
         self.assertIn("return Boolean(latestExternalInteraction(item))", ui)
         self.assertIn("canMarkPrFeedbackHandled", inspector_logic)
