@@ -1,0 +1,103 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">A2A Agent Runner dashboard mock screenshot</title>
+  <desc id="desc">A mock dashboard showing pull request lanes, linked issues, queue health, and an attention inspector.</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#0f172a" flood-opacity="0.18"/>
+    </filter>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#eef2f7"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="760" fill="url(#bg)"/>
+  <rect x="42" y="34" width="1116" height="692" rx="22" fill="#ffffff" filter="url(#shadow)"/>
+  <rect x="42" y="34" width="1116" height="52" rx="22" fill="#111827"/>
+  <rect x="42" y="68" width="1116" height="18" fill="#111827"/>
+  <circle cx="74" cy="60" r="6" fill="#ef4444"/>
+  <circle cx="96" cy="60" r="6" fill="#f59e0b"/>
+  <circle cx="118" cy="60" r="6" fill="#22c55e"/>
+  <text x="154" y="65" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#f9fafb">A2A Agent Runner</text>
+  <text x="972" y="65" font-family="Arial, sans-serif" font-size="12" fill="#cbd5e1">workers 2 / poll 60s / 9 repos</text>
+
+  <rect x="64" y="108" width="176" height="586" rx="16" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="88" y="145" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#64748b">WORKFLOW</text>
+  <rect x="82" y="166" width="132" height="34" rx="10" fill="#0f172a"/>
+  <text x="102" y="188" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#ffffff">Board</text>
+  <text x="102" y="230" font-family="Arial, sans-serif" font-size="13" fill="#475569">PRs</text>
+  <text x="102" y="270" font-family="Arial, sans-serif" font-size="13" fill="#475569">Review Drafts</text>
+  <text x="102" y="310" font-family="Arial, sans-serif" font-size="13" fill="#475569">Requests</text>
+  <text x="102" y="350" font-family="Arial, sans-serif" font-size="13" fill="#475569">Queue</text>
+  <rect x="88" y="602" width="104" height="28" rx="14" fill="#dcfce7" stroke="#86efac"/>
+  <circle cx="106" cy="616" r="5" fill="#16a34a"/>
+  <text x="120" y="621" font-family="Arial, sans-serif" font-size="11" font-weight="700" fill="#166534">monitoring</text>
+
+  <text x="272" y="132" font-family="Arial, sans-serif" font-size="26" font-weight="900" fill="#0f172a">Automation Board</text>
+  <text x="272" y="154" font-family="Arial, sans-serif" font-size="13" fill="#64748b">Track Gitea issues, PR review requests, and agent jobs from one local dashboard.</text>
+
+  <g>
+    <rect x="272" y="180" width="132" height="76" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="292" y="208" font-family="Arial, sans-serif" font-size="11" font-weight="800" fill="#64748b">OPEN PRS</text>
+    <text x="292" y="236" font-family="Arial, sans-serif" font-size="28" font-weight="900" fill="#0f172a">18</text>
+    <rect x="424" y="180" width="132" height="76" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="444" y="208" font-family="Arial, sans-serif" font-size="11" font-weight="800" fill="#64748b">REVIEWING</text>
+    <text x="444" y="236" font-family="Arial, sans-serif" font-size="28" font-weight="900" fill="#0f172a">6</text>
+    <rect x="576" y="180" width="132" height="76" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="596" y="208" font-family="Arial, sans-serif" font-size="11" font-weight="800" fill="#64748b">REVIEWED</text>
+    <text x="596" y="236" font-family="Arial, sans-serif" font-size="28" font-weight="900" fill="#0f172a">9</text>
+    <rect x="728" y="180" width="132" height="76" rx="12" fill="#fff7ed" stroke="#fed7aa"/>
+    <text x="748" y="208" font-family="Arial, sans-serif" font-size="11" font-weight="800" fill="#9a3412">ATTENTION</text>
+    <text x="748" y="236" font-family="Arial, sans-serif" font-size="28" font-weight="900" fill="#c2410c">3</text>
+  </g>
+
+  <g>
+    <rect x="272" y="286" width="190" height="318" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="292" y="316" font-family="Arial, sans-serif" font-size="14" font-weight="900" fill="#0f172a">WIP</text>
+    <rect x="292" y="340" width="150" height="70" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="306" y="365" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#334155">moras-brain</text>
+    <text x="306" y="386" font-family="Arial, sans-serif" font-size="11" fill="#64748b">PR#590  #580</text>
+    <rect x="292" y="426" width="150" height="70" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="306" y="451" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#334155">moras-console</text>
+    <text x="306" y="472" font-family="Arial, sans-serif" font-size="11" fill="#64748b">PR#164  #151</text>
+
+    <rect x="488" y="286" width="190" height="318" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="508" y="316" font-family="Arial, sans-serif" font-size="14" font-weight="900" fill="#0f172a">UNDER REVIEW</text>
+    <rect x="508" y="340" width="150" height="70" rx="10" fill="#ffffff" stroke="#fde68a"/>
+    <text x="522" y="365" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#334155">moras-api</text>
+    <text x="522" y="386" font-family="Arial, sans-serif" font-size="11" fill="#64748b">PR#612  reviewed</text>
+    <rect x="508" y="426" width="150" height="70" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="522" y="451" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#334155">moras-product</text>
+    <text x="522" y="472" font-family="Arial, sans-serif" font-size="11" fill="#64748b">PR#307  #298</text>
+
+    <rect x="704" y="286" width="190" height="318" rx="14" fill="#f8fafc" stroke="#e2e8f0"/>
+    <text x="724" y="316" font-family="Arial, sans-serif" font-size="14" font-weight="900" fill="#0f172a">REVIEWING</text>
+    <rect x="724" y="340" width="150" height="70" rx="10" fill="#fff7ed" stroke="#fb923c"/>
+    <text x="738" y="365" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#334155">moras-brain</text>
+    <text x="738" y="386" font-family="Arial, sans-serif" font-size="11" fill="#c2410c">PR#586  attention</text>
+    <rect x="724" y="426" width="150" height="70" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+    <text x="738" y="451" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#334155">moras-console</text>
+    <text x="738" y="472" font-family="Arial, sans-serif" font-size="11" fill="#64748b">PR#171  queued</text>
+  </g>
+
+  <rect x="920" y="180" width="204" height="424" rx="16" fill="#0f172a"/>
+  <text x="944" y="218" font-family="Arial, sans-serif" font-size="11" font-weight="900" fill="#94a3b8">NEEDS ATTENTION</text>
+  <text x="944" y="246" font-family="Arial, sans-serif" font-size="18" font-weight="900" fill="#ffffff">moras-brain PR#586</text>
+  <text x="944" y="272" font-family="Arial, sans-serif" font-size="12" fill="#cbd5e1">Your PR has external feedback</text>
+  <rect x="944" y="304" width="156" height="1" fill="#334155"/>
+  <text x="944" y="336" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#e2e8f0">Latest signal</text>
+  <text x="944" y="358" font-family="Arial, sans-serif" font-size="12" fill="#94a3b8">Zhu.HuaKai commented 2m ago</text>
+  <text x="944" y="394" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#e2e8f0">Linked issue</text>
+  <rect x="944" y="410" width="58" height="24" rx="12" fill="#1e293b" stroke="#475569"/>
+  <text x="960" y="426" font-family="Arial, sans-serif" font-size="11" font-weight="800" fill="#f8fafc">#581</text>
+  <rect x="944" y="476" width="156" height="34" rx="10" fill="#f97316"/>
+  <text x="984" y="498" font-family="Arial, sans-serif" font-size="12" font-weight="900" fill="#ffffff">I'm on it</text>
+  <rect x="944" y="524" width="156" height="34" rx="10" fill="#1e293b" stroke="#475569"/>
+  <text x="988" y="546" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#e2e8f0">Open PR</text>
+
+  <rect x="272" y="632" width="852" height="42" rx="12" fill="#f8fafc" stroke="#e2e8f0"/>
+  <text x="294" y="658" font-family="Arial, sans-serif" font-size="12" font-weight="800" fill="#475569">Queue</text>
+  <text x="358" y="658" font-family="Arial, sans-serif" font-size="12" fill="#64748b">2 running</text>
+  <text x="444" y="658" font-family="Arial, sans-serif" font-size="12" fill="#64748b">4 queued</text>
+  <text x="530" y="658" font-family="Arial, sans-serif" font-size="12" fill="#64748b">last poll 12:31</text>
+</svg>

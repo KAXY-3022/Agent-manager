@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Issue inspector mock screenshot</title>
+  <desc id="desc">A mock dashboard issue inspector showing linked pull requests, assessment scores, and auto-fix actions.</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#0f172a" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="760" fill="#f4f7fb"/>
+  <rect x="48" y="42" width="1104" height="676" rx="22" fill="#ffffff" filter="url(#shadow)"/>
+  <rect x="48" y="42" width="1104" height="52" rx="22" fill="#111827"/>
+  <rect x="48" y="76" width="1104" height="18" fill="#111827"/>
+  <circle cx="80" cy="68" r="6" fill="#ef4444"/>
+  <circle cx="102" cy="68" r="6" fill="#f59e0b"/>
+  <circle cx="124" cy="68" r="6" fill="#22c55e"/>
+  <text x="160" y="73" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#f9fafb">Issue Assessment</text>
+
+  <rect x="80" y="126" width="680" height="546" rx="18" fill="#f8fafc" stroke="#dbe4ee"/>
+  <text x="112" y="168" font-family="Arial, sans-serif" font-size="24" font-weight="900" fill="#0f172a">Related Issues</text>
+  <text x="112" y="192" font-family="Arial, sans-serif" font-size="13" fill="#64748b">Issues disappear from the backlog once an open linked PR is tracked.</text>
+
+  <rect x="112" y="234" width="590" height="82" rx="13" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="136" y="262" font-family="Arial, sans-serif" font-size="12" font-weight="900" fill="#475569">issue#580</text>
+  <text x="136" y="286" font-family="Arial, sans-serif" font-size="15" font-weight="800" fill="#0f172a">product-analysis all-none cleanup intent</text>
+  <rect x="574" y="250" width="96" height="26" rx="13" fill="#dcfce7" stroke="#86efac"/>
+  <text x="596" y="268" font-family="Arial, sans-serif" font-size="11" font-weight="900" fill="#166534">linked PR</text>
+  <text x="136" y="304" font-family="Arial, sans-serif" font-size="12" fill="#64748b">created by me / assigned to Zhu.HuaKai</text>
+
+  <rect x="112" y="338" width="590" height="82" rx="13" fill="#ffffff" stroke="#fed7aa"/>
+  <text x="136" y="366" font-family="Arial, sans-serif" font-size="12" font-weight="900" fill="#475569">issue#254</text>
+  <text x="136" y="390" font-family="Arial, sans-serif" font-size="15" font-weight="800" fill="#0f172a">use team acme email in outbound send path</text>
+  <rect x="574" y="354" width="96" height="26" rx="13" fill="#ffedd5" stroke="#fdba74"/>
+  <text x="600" y="372" font-family="Arial, sans-serif" font-size="11" font-weight="900" fill="#9a3412">easy</text>
+  <text x="136" y="408" font-family="Arial, sans-serif" font-size="12" fill="#64748b">assessment ready / awaiting approval</text>
+
+  <rect x="112" y="442" width="590" height="82" rx="13" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="136" y="470" font-family="Arial, sans-serif" font-size="12" font-weight="900" fill="#475569">issue#613</text>
+  <text x="136" y="494" font-family="Arial, sans-serif" font-size="15" font-weight="800" fill="#0f172a">console markdown rendering alignment</text>
+  <rect x="574" y="458" width="96" height="26" rx="13" fill="#e0f2fe" stroke="#7dd3fc"/>
+  <text x="596" y="476" font-family="Arial, sans-serif" font-size="11" font-weight="900" fill="#075985">review</text>
+  <text x="136" y="512" font-family="Arial, sans-serif" font-size="12" fill="#64748b">needs human plan review</text>
+
+  <rect x="792" y="126" width="310" height="546" rx="18" fill="#0f172a"/>
+  <text x="824" y="166" font-family="Arial, sans-serif" font-size="11" font-weight="900" fill="#94a3b8">NEEDS ATTENTION</text>
+  <text x="824" y="196" font-family="Arial, sans-serif" font-size="21" font-weight="900" fill="#ffffff">moras-brain Issue#254</text>
+  <text x="824" y="222" font-family="Arial, sans-serif" font-size="12" fill="#cbd5e1">Easy assessment is ready for approval.</text>
+
+  <rect x="824" y="260" width="246" height="58" rx="12" fill="#111f33" stroke="#334155"/>
+  <text x="844" y="284" font-family="Arial, sans-serif" font-size="11" font-weight="900" fill="#94a3b8">LINKED PR</text>
+  <rect x="844" y="294" width="78" height="22" rx="11" fill="#1e293b" stroke="#64748b"/>
+  <text x="862" y="309" font-family="Arial, sans-serif" font-size="11" font-weight="900" fill="#ffffff">PR#329</text>
+
+  <rect x="824" y="346" width="246" height="146" rx="14" fill="#111f33" stroke="#334155"/>
+  <text x="844" y="376" font-family="Arial, sans-serif" font-size="12" font-weight="900" fill="#e2e8f0">Final Assessment</text>
+  <rect x="968" y="358" width="62" height="26" rx="13" fill="#16a34a"/>
+  <text x="988" y="376" font-family="Arial, sans-serif" font-size="11" font-weight="900" fill="#ffffff">Easy</text>
+  <g font-family="Arial, sans-serif" font-size="11" font-weight="900">
+    <rect x="844" y="406" width="44" height="48" rx="10" fill="#0f172a" stroke="#334155"/>
+    <text x="856" y="426" fill="#94a3b8">diff</text><text x="862" y="446" fill="#ffffff">1</text>
+    <rect x="900" y="406" width="44" height="48" rx="10" fill="#0f172a" stroke="#334155"/>
+    <text x="908" y="426" fill="#94a3b8">work</text><text x="918" y="446" fill="#ffffff">2</text>
+    <rect x="956" y="406" width="44" height="48" rx="10" fill="#0f172a" stroke="#334155"/>
+    <text x="965" y="426" fill="#94a3b8">risk</text><text x="974" y="446" fill="#ffffff">1</text>
+    <rect x="1012" y="406" width="44" height="48" rx="10" fill="#0f172a" stroke="#334155"/>
+    <text x="1020" y="426" fill="#94a3b8">prio</text><text x="1030" y="446" fill="#ffffff">4</text>
+  </g>
+
+  <rect x="824" y="530" width="246" height="38" rx="11" fill="#f97316"/>
+  <text x="884" y="554" font-family="Arial, sans-serif" font-size="13" font-weight="900" fill="#ffffff">Approve auto-fix</text>
+  <rect x="824" y="582" width="246" height="38" rx="11" fill="#1e293b" stroke="#475569"/>
+  <text x="902" y="606" font-family="Arial, sans-serif" font-size="13" font-weight="800" fill="#e2e8f0">Open analysis</text>
+</svg>

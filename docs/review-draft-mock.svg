@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="760" viewBox="0 0 1200 760" role="img" aria-labelledby="title desc">
+  <title id="title">Review draft editor mock screenshot</title>
+  <desc id="desc">A mock review draft screen with task selection, markdown editing, and post controls.</desc>
+  <defs>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="130%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#0f172a" flood-opacity="0.16"/>
+    </filter>
+  </defs>
+  <rect width="1200" height="760" fill="#f5f7fb"/>
+  <rect x="48" y="42" width="1104" height="676" rx="22" fill="#ffffff" filter="url(#shadow)"/>
+  <rect x="48" y="42" width="1104" height="52" rx="22" fill="#111827"/>
+  <rect x="48" y="76" width="1104" height="18" fill="#111827"/>
+  <circle cx="80" cy="68" r="6" fill="#ef4444"/>
+  <circle cx="102" cy="68" r="6" fill="#f59e0b"/>
+  <circle cx="124" cy="68" r="6" fill="#22c55e"/>
+  <text x="160" y="73" font-family="Arial, sans-serif" font-size="14" font-weight="700" fill="#f9fafb">Review Drafts</text>
+
+  <text x="80" y="142" font-family="Arial, sans-serif" font-size="26" font-weight="900" fill="#0f172a">Agent Review Drafts</text>
+  <text x="80" y="166" font-family="Arial, sans-serif" font-size="13" fill="#64748b">Inspect, edit, and post the agent's suggested Gitea comment after human review.</text>
+
+  <rect x="80" y="198" width="300" height="476" rx="16" fill="#f8fafc" stroke="#dbe4ee"/>
+  <text x="108" y="234" font-family="Arial, sans-serif" font-size="12" font-weight="900" fill="#64748b">TASK PACKAGE</text>
+  <rect x="108" y="256" width="244" height="64" rx="12" fill="#ffffff" stroke="#f97316"/>
+  <text x="126" y="282" font-family="Arial, sans-serif" font-size="13" font-weight="900" fill="#0f172a">moras-brain PR#586</text>
+  <text x="126" y="304" font-family="Arial, sans-serif" font-size="11" fill="#c2410c">needs_human_review</text>
+  <rect x="108" y="336" width="244" height="64" rx="12" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="126" y="362" font-family="Arial, sans-serif" font-size="13" font-weight="900" fill="#0f172a">moras-console PR#164</text>
+  <text x="126" y="384" font-family="Arial, sans-serif" font-size="11" fill="#64748b">local draft ready</text>
+  <rect x="108" y="416" width="244" height="64" rx="12" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="126" y="442" font-family="Arial, sans-serif" font-size="13" font-weight="900" fill="#0f172a">moras-api Issue#254</text>
+  <text x="126" y="464" font-family="Arial, sans-serif" font-size="11" fill="#64748b">easy assessment</text>
+
+  <rect x="108" y="554" width="244" height="36" rx="10" fill="#0f172a"/>
+  <text x="192" y="577" font-family="Arial, sans-serif" font-size="13" font-weight="900" fill="#ffffff">Reload</text>
+  <rect x="108" y="606" width="244" height="36" rx="10" fill="#ffffff" stroke="#cbd5e1"/>
+  <text x="198" y="629" font-family="Arial, sans-serif" font-size="13" font-weight="800" fill="#334155">Open PR</text>
+
+  <rect x="416" y="198" width="688" height="476" rx="16" fill="#0f172a"/>
+  <rect x="416" y="198" width="688" height="50" rx="16" fill="#111827"/>
+  <rect x="416" y="230" width="688" height="18" fill="#111827"/>
+  <text x="448" y="230" font-family="Arial, sans-serif" font-size="12" font-weight="900" fill="#94a3b8">review.md</text>
+  <rect x="944" y="210" width="68" height="24" rx="12" fill="#1e293b" stroke="#475569"/>
+  <text x="966" y="226" font-family="Arial, sans-serif" font-size="10" font-weight="900" fill="#cbd5e1">saved</text>
+  <rect x="1022" y="210" width="58" height="24" rx="12" fill="#f97316"/>
+  <text x="1041" y="226" font-family="Arial, sans-serif" font-size="10" font-weight="900" fill="#ffffff">post</text>
+
+  <g font-family="Menlo, Consolas, monospace" font-size="14">
+    <text x="448" y="286" fill="#93c5fd">## Automated PR Review</text>
+    <text x="448" y="324" fill="#e5e7eb">**Verdict:** Needs human review</text>
+    <text x="448" y="362" fill="#fbbf24">### Findings</text>
+    <text x="448" y="394" fill="#d1d5db">- [blocking] markdown rendering regresses nested lists.</text>
+    <text x="448" y="426" fill="#d1d5db">- [medium] preserve fenced code blocks inside review comments.</text>
+    <text x="448" y="476" fill="#fbbf24">### Suggested PR Comment</text>
+    <text x="448" y="508" fill="#d1d5db">Thanks. I found one rendering regression and a focused fix path.</text>
+    <text x="448" y="540" fill="#d1d5db">I am on it; no extra automated reply will be posted until updated.</text>
+    <text x="448" y="590" fill="#94a3b8">Runtime: codex / provider: cc-switch / model: gpt-5.5</text>
+  </g>
+</svg>
