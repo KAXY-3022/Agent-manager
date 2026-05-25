@@ -141,6 +141,7 @@ MANUAL_PR_REVIEW_RETRY_LIMIT = 1
 LOW_CONFIDENCE_PR_REVIEW_REASON = "request-changes review used incomplete or unverified diff evidence"
 PR_REVIEW_COMPLETE_COMMENTS = 0
 PR_REVIEW_COMPLETE_DIFF_CHARS = 0
+ISSUE_JOB_KINDS = {"issue", "issue_stale_scan", "issue_auto_fix"}
 
 
 def is_transient_job_error(exc: BaseException) -> bool:
@@ -212,7 +213,7 @@ class WebhookJob:
 
 
 def job_lock_key(job: WebhookJob) -> str:
-    item_kind = "issue" if job.kind in {"issue", "issue_stale_scan"} else job.kind
+    item_kind = "issue" if job.kind in ISSUE_JOB_KINDS else job.kind
     return f"{item_kind}:{job.owner}/{job.repo}#{job.number}"
 
 
@@ -1929,6 +1930,8 @@ def issue_triage_status_for_item(repo: str, item_type: str, number: int) -> dict
         label = "auto failed"
         human_attention = True
         attention_reason = "Issue auto-implementation failed"
+    elif automation_status == "auto-running":
+        label = "auto running"
     elif automation_status == "auto-succeeded":
         label = "PR opened"
     elif automation_status == "easy-direct-ready" or decision == "easy-direct":
@@ -1948,6 +1951,8 @@ def issue_triage_status_for_item(repo: str, item_type: str, number: int) -> dict
         "stale_issue_action_status": stale_action_status,
         "triage_scores": record.get("triage_scores") or {},
         "strict_easy_gate_passed": bool(record.get("strict_easy_gate_passed")),
+        "auto_fix_approval_available": issue_auto_fix_approval_allowed(record),
+        "implementation_result": record.get("implementation_result") if isinstance(record.get("implementation_result"), dict) else {},
         "human_attention": human_attention,
         "attention_reason": attention_reason,
         "human_handoff_taken_at": human_handoff_taken_at,
@@ -2566,6 +2571,12 @@ def task_review_payload(
         "created_at": record.get("created_at") or "",
         "runtime_used": record.get("runtime_used") or "",
         "runtime_status": record.get("runtime_status") or "",
+        "automation_decision": record.get("automation_decision") or "",
+        "automation_status": record.get("automation_status") or "",
+        "triage_scores": record.get("triage_scores") or {},
+        "strict_easy_gate_passed": bool(record.get("strict_easy_gate_passed")),
+        "auto_fix_approval_available": issue_auto_fix_approval_allowed(record),
+        "implementation_result": record.get("implementation_result") if isinstance(record.get("implementation_result"), dict) else {},
         "posted": bool(record.get("posted")),
         "posted_at": record.get("posted_at") or "",
         "post_skipped_reason": record.get("post_skipped_reason") or "",
@@ -2612,6 +2623,69 @@ def mark_issue_human_handoff_taken(task_dir: Path, username: str = "") -> dict[s
     record["human_handoff_status"] = "taken-over"
     write_json(record_path, record)
     return task_review_payload(task_dir)
+
+
+def issue_auto_fix_approval_blocker(record: dict[str, Any]) -> str:
+    if record.get("item_type") != "issue":
+        return "auto-fix approval is only available for issue task packages"
+    if str(record.get("runtime_status") or "") != "succeeded":
+        return "issue analysis has not succeeded"
+    decision = str(record.get("automation_decision") or "")
+    status = str(record.get("automation_status") or "")
+    if decision != "easy-direct" and "easy-direct" not in status and status != "auto-failed":
+        return "issue was not assessed as easy-direct"
+    implementation_result = record.get("implementation_result") if isinstance(record.get("implementation_result"), dict) else {}
+    if status == "auto-succeeded" or implementation_result.get("status") == "succeeded":
+        return "auto-fix already succeeded"
+    return ""
+
+
+def issue_auto_fix_approval_allowed(record: dict[str, Any]) -> bool:
+    return not issue_auto_fix_approval_blocker(record)
+
+
+def approve_issue_auto_fix(task_dir: Path, config: WebhookConfig) -> dict[str, Any]:
+    record_path, review_path, record, repo, target = read_post_target(task_dir)
+    blocker = issue_auto_fix_approval_blocker(record)
+    if blocker:
+        raise DemoError(blocker)
+    issue_path = task_dir / "issue.json"
+    issue_data = load_json(issue_path) if issue_path.exists() else fetch_issue(target, repo)
+    review = review_path.read_text(encoding="utf-8").strip()
+    _, gate_reasons, gate_metadata = issue_strict_easy_gate(review, issue_data)
+    if gate_metadata.get("decision") != "easy-direct":
+        raise DemoError("issue was not assessed as easy-direct")
+    verification_command = str(gate_metadata.get("verification_command") or record.get("verification_command") or "")
+    if not safe_verification_command(verification_command):
+        raise DemoError("safe focused verification command missing")
+
+    record["manual_auto_fix_approved_at"] = utc_now()
+    if config.username:
+        record["manual_auto_fix_approved_by"] = config.username
+    record["manual_auto_fix_gate_reasons"] = gate_reasons
+    record["verification_command"] = verification_command
+    record["automation_status"] = "auto-running"
+    write_json(record_path, record)
+
+    component = Path(record.get("component") or config.a2a_root / repo.rsplit("/", 1)[-1])
+    result = run_issue_auto_implementation(
+        component=component,
+        repo=repo,
+        issue_data=issue_data,
+        issue_review=review,
+        gate_metadata={**gate_metadata, "verification_command": verification_command},
+        runtime=str(record.get("runtime_requested") or config.runtime),
+        model=str(record.get("model") or config.issue_model),
+        reasoning_effort=str(record.get("reasoning_effort") or config.issue_reasoning_effort),
+        default_reviewers=config.default_reviewers,
+        timeout=config.job_timeout_seconds,
+    )
+    record["implementation_result"] = result
+    record["automation_status"] = f"auto-{result.get('status') or 'unknown'}"
+    write_json(record_path, record)
+    payload = task_review_payload(task_dir)
+    payload["implementation_result"] = result
+    return payload
 
 
 def normalize_comment_for_dedupe(value: str) -> str:
@@ -3339,7 +3413,7 @@ def tracking_item_key(repo: str, item_type: str, number: int) -> str:
 
 
 def job_tracking_item_key(dedupe_key: str, kind: str) -> str | None:
-    item_type = {"issue": "issue", "issue_stale_scan": "issue", "pr_review": "pull_request"}.get(kind)
+    item_type = {"issue": "issue", "issue_stale_scan": "issue", "issue_auto_fix": "issue", "pr_review": "pull_request"}.get(kind)
     if not item_type:
         return None
     target = str(dedupe_key or "").split("@", 1)[0]
@@ -3356,7 +3430,7 @@ def job_tracking_item_key(dedupe_key: str, kind: str) -> str | None:
 
 
 def job_active_item_key(job: WebhookJob) -> str:
-    item_type = {"issue": "issue", "issue_stale_scan": "issue", "pr_review": "pull_request"}.get(job.kind, job.kind)
+    item_type = {"issue": "issue", "issue_stale_scan": "issue", "issue_auto_fix": "issue", "pr_review": "pull_request"}.get(job.kind, job.kind)
     return tracking_item_key(f"{job.owner}/{job.repo}", item_type, job.number)
 
 
@@ -3367,6 +3441,8 @@ def job_kind_label(kind: str) -> str:
         return "issue reply"
     if kind == "issue_stale_scan":
         return "stale issue scan"
+    if kind == "issue_auto_fix":
+        return "issue auto-fix"
     return kind.replace("_", " ") or "job"
 
 
@@ -3590,8 +3666,26 @@ def issue_newly_assigned_to_user(
     return not issue_assigned_to_user(previous_snapshot, expected_usernames)
 
 
-def issue_is_untackled(snapshot: dict[str, Any]) -> bool:
-    return not compact_users(snapshot.get("assignees")) and not snapshot_has_related_pr(snapshot)
+def issue_auto_analysis_skip_reason(
+    snapshot: dict[str, Any],
+    username: str,
+    *,
+    aliases: tuple[str, ...] = (),
+    own_branch_prefixes: tuple[str, ...] = (),
+) -> str:
+    relationships = snapshot_relationships(
+        snapshot,
+        username,
+        aliases=aliases,
+        own_branch_prefixes=own_branch_prefixes,
+    )
+    if snapshot_has_related_pr(snapshot):
+        return "linked PR exists"
+    if not relationships.get("assigned_to_me"):
+        return "issue is not assigned to you"
+    if relationships.get("created_by_me"):
+        return "issue was created by you"
+    return ""
 
 
 def pr_review_newly_requested_or_head_changed(
@@ -3654,6 +3748,7 @@ STRICT_GATE_RISK_KEYWORDS = (
     "cross repo",
 )
 VERIFICATION_COMMAND_PATTERNS = (
+    r"\bgrep(?:\s|$)",
     r"\bpytest(?:\s|$)",
     r"\bpython(?:3)?\s+-m\s+(?:pytest|unittest)\b",
     r"\bnpm\s+(?:test|run\s+test)\b",
@@ -3663,6 +3758,7 @@ VERIFICATION_COMMAND_PATTERNS = (
     r"\bcargo\s+test\b",
 )
 SAFE_VERIFICATION_COMMANDS = {
+    "grep",
     "pytest",
     "python",
     "python3",
@@ -5022,9 +5118,45 @@ class WebhookBridge:
             events.extend(self._stale_issues_repo(repo_slug_value))
         return events
 
+    def _open_pr_issue_links(self, repo_slug_value: str) -> dict[tuple[str, int], list[dict[str, Any]]]:
+        by_issue: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        try:
+            pr_items = list_open_prs(repo_slug_value, self.config.monitor_limit, timeout=10)
+        except Exception as exc:
+            logging.warning("issue PR link check failed to list PRs repo=%s error=%s", repo_slug_value, exc)
+            return by_issue
+        for item in pr_items:
+            number = first_int(item.get("index"), item.get("number"))
+            if not number:
+                continue
+            try:
+                pr_data = fetch_pr(str(number), repo_slug_value, timeout=10)
+                snapshot = build_pr_snapshot(repo_slug_value, pr_data, [])
+                pr_summary = {
+                    "repo": repo_slug_value,
+                    "number": int(snapshot.get("number") or number),
+                    "state": str(snapshot.get("state") or "open"),
+                    "title": str(snapshot.get("title") or ""),
+                    "url": str(snapshot.get("url") or ""),
+                    "merged_at": str(snapshot.get("merged_at") or ""),
+                    "closed_at": str(snapshot.get("closed_at") or ""),
+                }
+                for issue_number in snapshot.get("linked_issues") or []:
+                    issue_number = int(issue_number or 0)
+                    if not issue_number:
+                        continue
+                    append_unique_pr_summary(by_issue, (repo_slug_value, issue_number), pr_summary)
+                    if not is_central_issue_repo(repo_slug_value):
+                        central_repo = f"{repo_slug_value.split('/', 1)[0]}/project-core"
+                        append_unique_pr_summary(by_issue, (central_repo, issue_number), pr_summary)
+            except Exception as exc:
+                logging.warning("issue PR link check failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
+        return by_issue
+
     def _discovery_repo(self, repo_slug_value: str, *, queue_actions: bool = True) -> list[str]:
         events: list[str] = []
         expected_usernames = username_candidates(self.config.username, self.config.username_aliases)
+        pending_issue_analysis: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
         try:
             issue_items = list_open_issues(repo_slug_value, self.config.monitor_limit, timeout=10)
         except Exception as exc:
@@ -5049,14 +5181,7 @@ class WebhookBridge:
                 if summary:
                     events.append(f"{repo_slug_value} issue#{number}: {summary}")
                 if queue_actions and issue_newly_assigned_to_user(previous_snapshot, snapshot, expected_usernames):
-                    response = self._queue_issue_from_issue_data(
-                        repo_slug_value,
-                        issue_data,
-                        event_type="issue_discovery",
-                        delivery_prefix="issue",
-                    )
-                    if response.status_code == 202:
-                        events.append(f"{repo_slug_value} issue#{number}: queued assigned issue triage")
+                    pending_issue_analysis.append((number, issue_data, snapshot))
             except Exception as exc:
                 logging.warning("discovery issue fetch failed repo=%s issue=%s error=%s", repo_slug_value, number, exc)
         events.extend(self._reconcile_tracked_issues(repo_slug_value, open_issue_numbers))
@@ -5109,11 +5234,35 @@ class WebhookBridge:
             except Exception as exc:
                 logging.warning("discovery PR fetch failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
         events.extend(self._reconcile_tracked_prs(repo_slug_value, open_pr_numbers))
+        if pending_issue_analysis:
+            issue_linked_prs = self.store.issue_linked_pr_index()
+            for number, issue_data, snapshot in pending_issue_analysis:
+                enriched_snapshot = enrich_issue_snapshot_with_tracked_prs(
+                    dict(snapshot),
+                    issue_linked_prs.get((repo_slug_value, number), []),
+                )
+                skip_reason = issue_auto_analysis_skip_reason(
+                    enriched_snapshot,
+                    self.config.username,
+                    aliases=self.config.username_aliases,
+                    own_branch_prefixes=self.config.own_branch_prefixes,
+                )
+                if skip_reason:
+                    events.append(f"{repo_slug_value} issue#{number}: skipped automatic issue analysis: {skip_reason}")
+                    continue
+                response = self._queue_issue_from_issue_data(
+                    repo_slug_value,
+                    issue_data,
+                    event_type="issue_discovery",
+                    delivery_prefix="issue",
+                    snapshot=enriched_snapshot,
+                )
+                if response.status_code == 202:
+                    events.append(f"{repo_slug_value} issue#{number}: queued assigned issue triage")
         return events
 
     def _stale_issues_repo(self, repo_slug_value: str) -> list[str]:
         events: list[str] = []
-        expected_usernames = username_candidates(self.config.username, self.config.username_aliases)
         issue_linked_prs = self.store.issue_linked_pr_index()
         try:
             issue_items = list_open_issues(repo_slug_value, self.config.monitor_limit, timeout=10)
@@ -5147,40 +5296,28 @@ class WebhookBridge:
                     aliases=self.config.username_aliases,
                     own_branch_prefixes=self.config.own_branch_prefixes,
                 )
-                if snapshot.get("resolved_by_merged_prs"):
-                    events.append(f"{repo_slug_value} issue#{number}: skipped resolved by merged PRs")
+                skip_reason = issue_auto_analysis_skip_reason(
+                    snapshot,
+                    self.config.username,
+                    aliases=self.config.username_aliases,
+                    own_branch_prefixes=self.config.own_branch_prefixes,
+                )
+                if skip_reason:
+                    events.append(f"{repo_slug_value} issue#{number}: skipped automatic issue analysis: {skip_reason}")
                     continue
-                if snapshot_has_related_pr(snapshot):
-                    events.append(f"{repo_slug_value} issue#{number}: skipped linked PR")
-                    continue
-                if compact_users(snapshot.get("assignees")) and not relationships.get("assigned_to_me"):
-                    events.append(f"{repo_slug_value} issue#{number}: skipped assigned issue")
-                    continue
-                if relationships.get("assigned_to_me") or relationships.get("created_by_me"):
+                if relationships.get("assigned_to_me"):
                     response = self._queue_issue_from_issue_data(
                         repo_slug_value,
                         issue_data,
                         event_type="stale_issue_related_assessment",
                         delivery_prefix="stale-assess",
+                        snapshot=snapshot,
                     )
                     if response.status_code == 202:
                         events.append(f"{repo_slug_value} issue#{number}: queued related issue assessment")
                     else:
                         events.append(f"{repo_slug_value} issue#{number}: assessment {response.body.get('status')}")
                     continue
-                if not issue_is_untackled(snapshot):
-                    events.append(f"{repo_slug_value} issue#{number}: skipped tackled issue")
-                    continue
-                response = self._queue_stale_issue_scan_from_issue_data(
-                    repo_slug_value,
-                    issue_data,
-                    event_type="stale_issue_scan",
-                    delivery_prefix="stale",
-                )
-                if response.status_code == 202:
-                    events.append(f"{repo_slug_value} issue#{number}: queued stale issue scan")
-                else:
-                    events.append(f"{repo_slug_value} issue#{number}: stale scan {response.body.get('status')}")
             except Exception as exc:
                 logging.warning("stale issue fetch failed repo=%s issue=%s error=%s", repo_slug_value, number, exc)
                 events.append(f"{repo_slug_value} issue#{number}: stale issue scan failed: {exc}")
@@ -5463,6 +5600,28 @@ class WebhookBridge:
             delivery_prefix="manual",
         )
 
+    def queue_issue_auto_fix(self, task_dir: Path) -> WebhookResponse:
+        _, _, record, repo_slug_value, target = read_post_target(task_dir)
+        blocker = issue_auto_fix_approval_blocker(record)
+        if blocker:
+            return WebhookResponse(409, {"status": "not_available", "reason": blocker})
+        owner, repo = split_repo_slug(repo_slug_value)
+        number = first_int(target)
+        if not number:
+            return WebhookResponse(400, {"status": "not_available", "reason": "issue number missing"})
+        job = WebhookJob(
+            kind="issue_auto_fix",
+            delivery_id=f"issue-auto-fix-{owner}-{repo}-{number}",
+            event_type="issue_auto_fix_manual",
+            dedupe_key=f"{owner}/{repo}#{number}:auto-fix",
+            owner=owner,
+            repo=repo,
+            number=number,
+            title=str(record.get("title") or ""),
+            url=str(task_dir),
+        )
+        return self._queue_job(job, f"queued approved issue auto-fix {owner}/{repo}#{number}")
+
     def _run_job(self, job: WebhookJob, *, cancel_event: threading.Event | None = None) -> None:
         model, reasoning_effort = self._model_policy_for_job(job)
         args = argparse.Namespace(
@@ -5501,6 +5660,20 @@ class WebhookBridge:
             )
             self.store.record_tracking_snapshot(snapshot)
             return
+        if job.kind == "issue_auto_fix":
+            task_dir = None
+            if job.url:
+                try:
+                    task_dir = ensure_task_under_root(Path(job.url))
+                except DemoError:
+                    task_dir = None
+            if task_dir is None:
+                task_dir = ensure_task_under_root(resolve_task(str(job.number), f"{job.owner}/{job.repo}", "issue", latest=True))
+            payload = approve_issue_auto_fix(task_dir, self.config)
+            result = payload.get("implementation_result") if isinstance(payload.get("implementation_result"), dict) else {}
+            if result.get("status") != "succeeded":
+                raise DemoError(str(result.get("error") or result.get("reason") or "issue auto-fix did not succeed"))
+            return
         if job.kind == "pr_review":
             args.pull = str(job.number)
             args.post = self.config.pr_auto_post and not is_comment_job(job)
@@ -5512,7 +5685,7 @@ class WebhookBridge:
         raise DemoError(f"unknown webhook job kind {job.kind}")
 
     def _model_policy_for_job(self, job: WebhookJob) -> tuple[str, str]:
-        if job.kind in {"issue", "issue_stale_scan"}:
+        if job.kind in ISSUE_JOB_KINDS:
             return self.config.issue_model, self.config.issue_reasoning_effort
         if job.kind == "pr_review" and is_comment_job(job):
             return self.config.comment_model, self.config.comment_reasoning_effort
@@ -5535,8 +5708,6 @@ class WebhookBridge:
     def _queue_issue_from_payload(self, delivery_id: str, event_type: str, payload: dict[str, Any]) -> WebhookResponse:
         issue = payload.get("issue") if isinstance(payload.get("issue"), dict) else {}
         assignee = payload.get("assignee") or issue.get("assignee") or issue.get("assignees")
-        if not user_matches(assignee, self.config.username):
-            return self._record_ignored(delivery_id, event_type, "issue-assignee", "assignment was for another user")
         repo_ctx = extract_webhook_repo(payload, self.config.a2a_root)
         if not repo_ctx:
             return self._record_ignored(delivery_id, event_type, "issue-repo", "repository is not mapped locally")
@@ -5544,6 +5715,46 @@ class WebhookBridge:
         number = first_int(issue.get("number"), issue.get("index"))
         if not number:
             return self._record_ignored(delivery_id, event_type, "issue-number", "issue number missing")
+        issue_for_snapshot = dict(issue)
+        if assignee:
+            existing_assignees = issue_for_snapshot.get("assignees")
+            extra_assignees = assignee if isinstance(assignee, list) else [assignee]
+            if isinstance(existing_assignees, list):
+                issue_for_snapshot["assignees"] = [*existing_assignees, *extra_assignees]
+            elif existing_assignees:
+                issue_for_snapshot["assignees"] = [existing_assignees, *extra_assignees]
+            else:
+                issue_for_snapshot["assignees"] = extra_assignees
+        repo_slug_value = f"{owner}/{repo}"
+        snapshot = annotate_snapshot_relationship_labels(
+            build_issue_snapshot(repo_slug_value, issue_for_snapshot),
+            self.config.username,
+            aliases=self.config.username_aliases,
+            own_branch_prefixes=self.config.own_branch_prefixes,
+        )
+        snapshot = enrich_issue_snapshot_with_tracked_prs(
+            snapshot,
+            self.store.issue_linked_pr_index().get((repo_slug_value, number), []),
+        )
+        skip_reason = issue_auto_analysis_skip_reason(
+            snapshot,
+            self.config.username,
+            aliases=self.config.username_aliases,
+            own_branch_prefixes=self.config.own_branch_prefixes,
+        )
+        if skip_reason:
+            return self._record_ignored(delivery_id, event_type, "issue-auto-analysis", skip_reason)
+        remote_pr_links = self._open_pr_issue_links(repo_slug_value).get((repo_slug_value, number), [])
+        if remote_pr_links:
+            snapshot = enrich_issue_snapshot_with_tracked_prs(snapshot, remote_pr_links)
+            skip_reason = issue_auto_analysis_skip_reason(
+                snapshot,
+                self.config.username,
+                aliases=self.config.username_aliases,
+                own_branch_prefixes=self.config.own_branch_prefixes,
+            )
+            if skip_reason:
+                return self._record_ignored(delivery_id, event_type, "issue-auto-analysis", skip_reason)
         job = WebhookJob(
             kind="issue",
             delivery_id=delivery_id,
@@ -5564,11 +5775,31 @@ class WebhookBridge:
         *,
         event_type: str,
         delivery_prefix: str,
+        snapshot: dict[str, Any] | None = None,
     ) -> WebhookResponse:
         owner, repo = split_repo_slug(repo_slug_value)
         number = first_int(issue_data.get("index"), issue_data.get("number"))
         if not number:
             return WebhookResponse(200, {"status": "ignored", "reason": "issue number missing"})
+        if snapshot is None:
+            snapshot = annotate_snapshot_relationship_labels(
+                build_issue_snapshot(repo_slug_value, issue_data),
+                self.config.username,
+                aliases=self.config.username_aliases,
+                own_branch_prefixes=self.config.own_branch_prefixes,
+            )
+            snapshot = enrich_issue_snapshot_with_tracked_prs(
+                snapshot,
+                self.store.issue_linked_pr_index().get((repo_slug_value, number), []),
+            )
+        skip_reason = issue_auto_analysis_skip_reason(
+            snapshot,
+            self.config.username,
+            aliases=self.config.username_aliases,
+            own_branch_prefixes=self.config.own_branch_prefixes,
+        )
+        if skip_reason:
+            return WebhookResponse(200, {"status": "ignored", "reason": skip_reason})
         job = WebhookJob(
             kind="issue",
             delivery_id=f"{delivery_prefix}-{owner}-{repo}-{number}",
@@ -5670,7 +5901,7 @@ class WebhookBridge:
 
     def _queue_job(self, job: WebhookJob, summary: str) -> WebhookResponse:
         delivery_inserted = self.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "queued", summary)
-        retry_limit = MANUAL_PR_REVIEW_RETRY_LIMIT if job.event_type == "pr_review_manual" else self.config.retry_failed_limit
+        retry_limit = MANUAL_PR_REVIEW_RETRY_LIMIT if job.event_type in {"pr_review_manual", "issue_auto_fix_manual"} else self.config.retry_failed_limit
         if not delivery_inserted:
             reservation = self.store.reserve_or_retry_job(job, retry_limit)
             if reservation == "retry":
@@ -6601,6 +6832,28 @@ def make_ui_handler(config: WebhookConfig, bridge: WebhookBridge | None = None):
                         self._json(400, {"error": "repo and number are required"})
                         return
                     response = bridge.queue_manual_pr_review(repo, number)
+                    self._json(response.status_code, response.body)
+                    return
+                if parsed.path == "/api/issue-auto-fix/queue":
+                    if bridge is None:
+                        self._json(409, {"error": "issue auto-fix queue is not available in UI-only mode"})
+                        return
+                    task_ref = str(body.get("task") or "")
+                    repo = str(body.get("repo") or "")
+                    number = first_int(body.get("number"))
+                    if task_ref:
+                        try:
+                            task_dir = resolve_task_for_api(task_ref)
+                        except DemoError:
+                            if not repo or not number:
+                                raise
+                            task_dir = ensure_task_under_root(resolve_task(str(number), repo, "issue", latest=True))
+                    else:
+                        if not repo or not number:
+                            self._json(400, {"error": "task or repo and number are required"})
+                            return
+                        task_dir = ensure_task_under_root(resolve_task(str(number), repo, "issue", latest=True))
+                    response = bridge.queue_issue_auto_fix(task_dir)
                     self._json(response.status_code, response.body)
                     return
                 if parsed.path == "/api/task-review/save":

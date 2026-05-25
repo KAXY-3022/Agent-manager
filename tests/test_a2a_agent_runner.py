@@ -879,6 +879,102 @@ class RunnerStateTests(unittest.TestCase):
             self.assertTrue(bridge.jobs.empty())
             self.assertEqual(bridge.store.recent_deliveries(10), [])
 
+    def test_issue_webhook_queues_only_assigned_external_issue_without_pr(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "project-core" / ".git").mkdir(parents=True)
+            config = self.make_config(tmpdir)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+
+            def send_issue(delivery_id: str, number: int, *, author: str, issue_body: str = ""):
+                payload = {
+                    "action": "assigned",
+                    "repository": {
+                        "full_name": "ExampleOrg/project-core",
+                        "name": "project-core",
+                        "owner": {"login": "ExampleOrg"},
+                    },
+                    "assignee": {"login": "Dev.User"},
+                    "issue": {
+                        "number": number,
+                        "index": number,
+                        "state": "open",
+                        "author": {"login": author},
+                        "title": f"Issue {number}",
+                        "url": f"https://gitea.example.com/ExampleOrg/project-core/issues/{number}",
+                        "body": issue_body,
+                        "assignees": [{"login": "Dev.User"}],
+                        "labels": [],
+                        "comments": [],
+                    },
+                }
+                body = json.dumps(payload).encode("utf-8")
+                headers = a2a_runner.signed_webhook_headers(config, "issues", delivery_id, body)
+                return bridge.handle_webhook(headers, body)
+
+            with mock.patch.object(a2a_runner, "list_open_prs", return_value=[]):
+                queued = send_issue("delivery-allowed", 398, author="Other.User")
+                own = send_issue("delivery-own", 399, author="Dev.User")
+                linked = send_issue("delivery-linked", 400, author="Other.User", issue_body="Handled by PR #44.")
+
+            self.assertEqual(queued.status_code, 202)
+            self.assertEqual(queued.body["status"], "queued")
+            self.assertEqual(own.body["reason"], "issue was created by you")
+            self.assertEqual(linked.body["reason"], "linked PR exists")
+            self.assertEqual(bridge.jobs.qsize(), 1)
+            job = bridge.jobs.get_nowait()
+            self.assertEqual(job.kind, "issue")
+            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#398")
+
+    def test_issue_webhook_skips_assigned_issue_with_existing_remote_pr(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "project-core" / ".git").mkdir(parents=True)
+            config = self.make_config(tmpdir)
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            payload = {
+                "action": "assigned",
+                "repository": {
+                    "full_name": "ExampleOrg/project-core",
+                    "name": "project-core",
+                    "owner": {"login": "ExampleOrg"},
+                },
+                "assignee": {"login": "Dev.User"},
+                "issue": {
+                    "number": 401,
+                    "index": 401,
+                    "state": "open",
+                    "author": {"login": "Other.User"},
+                    "title": "Issue with PR",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/issues/401",
+                    "body": "Needs owner.",
+                    "assignees": [{"login": "Dev.User"}],
+                    "labels": [],
+                    "comments": [],
+                },
+            }
+            pr = {
+                "index": 44,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Fix issue 401",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/44",
+                "body": "Fixes #401",
+                "head": "fix/401",
+                "headSha": "abc123",
+                "comments": [],
+                "reviews": [],
+                "requested_reviewers": [],
+            }
+            body = json.dumps(payload).encode("utf-8")
+            headers = a2a_runner.signed_webhook_headers(config, "issues", "delivery-remote-pr", body)
+
+            with mock.patch.object(a2a_runner, "list_open_prs", return_value=[{"index": 44}]), \
+                mock.patch.object(a2a_runner, "fetch_pr", return_value=pr):
+                response = bridge.handle_webhook(headers, body)
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.body["reason"], "linked PR exists")
+            self.assertEqual(bridge.jobs.qsize(), 0)
+
     def test_bridge_test_still_records_when_webhook_triggers_are_disabled(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = self.make_config(tmpdir, webhook_triggers_enabled=False)
@@ -918,6 +1014,116 @@ Focused verification command: `python -m unittest tests/test_a2a_runner.py`
         self.assertTrue(passed, reasons)
         self.assertEqual(metadata["decision"], "easy-direct")
         self.assertEqual(metadata["scores"]["difficulty"], 1)
+
+    def test_strict_easy_gate_extracts_safe_grep_verification(self):
+        review = """# Agent Review
+
+## Automation Decision
+easy-direct
+
+- difficulty: 1
+- workload: 1
+- importance: 3
+- complexity: 1
+
+## Validation Plan
+```sh
+grep -nE '^[[:space:]]+email: ops@moras.ai$' pki/cluster-issuer.yaml
+```
+"""
+
+        passed, reasons, metadata = a2a_runner.issue_strict_easy_gate(
+            review,
+            {"title": "Small config fix", "body": "Update a local value.", "labels": []},
+        )
+
+        self.assertTrue(passed, reasons)
+        self.assertEqual(
+            metadata["verification_command"],
+            "grep -nE '^[[:space:]]+email: ops@moras.ai$' pki/cluster-issuer.yaml",
+        )
+
+    def test_approved_issue_auto_fix_runs_from_blocked_easy_assessment(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "K2Lab-moras-composer-issue-254"
+            component = Path(tmpdir) / "moras-composer"
+            task_dir.mkdir()
+            component.mkdir()
+            issue = {
+                "index": 254,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Use team ACME email",
+                "url": "https://gitea.example.com/K2Lab/moras-composer/issues/254",
+                "body": "Production certificate notifications should use a team mailbox.",
+                "assignees": [{"login": "Dev.User"}],
+                "labels": [],
+                "comments": [],
+            }
+            review = """# Agent Review
+
+## Automation Decision
+easy-direct
+
+## Triage Scores
+- difficulty: 1
+- workload: 1
+- importance: 3
+- complexity: 1
+
+## Validation Plan
+```sh
+grep -nE '^[[:space:]]+email: ops@moras.ai$' pki/cluster-issuer.yaml
+```
+"""
+            record = {
+                "task_id": task_dir.name,
+                "created_at": "2026-05-25T01:47:30+00:00",
+                "repo": "K2Lab/moras-composer",
+                "item_type": "issue",
+                "target_index": "254",
+                "issue": "254",
+                "issue_url": issue["url"],
+                "title": issue["title"],
+                "component": str(component),
+                "runtime_requested": "codex",
+                "runtime_used": "codex",
+                "runtime_status": "succeeded",
+                "model": "gpt-5.5",
+                "reasoning_effort": "xhigh",
+                "automation_decision": "easy-direct",
+                "automation_status": "easy-direct-blocked",
+                "strict_easy_gate_passed": False,
+                "strict_easy_gate_reasons": ["risk keywords present: production"],
+                "verification_command": "",
+                "posted": False,
+            }
+            a2a_runner.write_json(task_dir / "issue.json", issue)
+            a2a_runner.write_text(task_dir / "review.md", review)
+            a2a_runner.write_json(task_dir / "record.json", record)
+            config = self.make_config(tmpdir)
+
+            with mock.patch.object(
+                a2a_runner,
+                "run_issue_auto_implementation",
+                return_value={
+                    "status": "succeeded",
+                    "stage": "done",
+                    "branch": "codex/issue-254-use-team-acme-email",
+                    "pull_request_number": "255",
+                },
+            ) as implementation:
+                payload = a2a_runner.approve_issue_auto_fix(task_dir, config)
+
+            updated = a2a_runner.load_json(task_dir / "record.json")
+            self.assertEqual(updated["automation_status"], "auto-succeeded")
+            self.assertEqual(updated["implementation_result"]["pull_request_number"], "255")
+            self.assertEqual(payload["implementation_result"]["status"], "succeeded")
+            kwargs = implementation.call_args.kwargs
+            self.assertEqual(kwargs["component"], component)
+            self.assertEqual(kwargs["repo"], "K2Lab/moras-composer")
+            self.assertTrue(kwargs["gate_metadata"]["verification_command"].startswith("grep -nE"))
+            self.assertIn("risk keywords present", "\n".join(updated["manual_auto_fix_gate_reasons"]))
 
     def test_strict_easy_gate_rejects_risky_or_non_easy_review(self):
         review = """# Agent Review
@@ -980,6 +1186,86 @@ mid-human-review
             job = bridge.jobs.get_nowait()
             self.assertEqual(job.kind, "issue")
             self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#398")
+
+    def test_discovery_poll_skips_assigned_issue_created_by_user(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("ExampleOrg/project-core",),
+                    "monitor_limit": 10,
+                    "monitor_pr_reviews": False,
+                }
+            )
+            issue = {
+                "index": 398,
+                "state": "open",
+                "author": {"login": "Dev.User"},
+                "title": "My assigned issue",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/issues/398",
+                "body": "Please check.",
+                "assignees": [{"login": "Dev.User"}],
+                "labels": [],
+                "comments": [],
+            }
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+
+            with mock.patch.object(a2a_runner, "list_open_issues", return_value=[{"index": 398}]), \
+                mock.patch.object(a2a_runner, "fetch_issue", return_value=issue), \
+                mock.patch.object(a2a_runner, "list_open_prs", return_value=[]):
+                events = bridge.discovery_once()
+
+            self.assertIn("skipped automatic issue analysis: issue was created by you", "\n".join(events))
+            self.assertNotIn("queued assigned issue triage", "\n".join(events))
+            self.assertEqual(bridge.jobs.qsize(), 0)
+
+    def test_discovery_poll_skips_assigned_issue_with_pr_discovered_same_poll(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("ExampleOrg/project-core",),
+                    "monitor_limit": 10,
+                    "monitor_pr_reviews": False,
+                }
+            )
+            issue = {
+                "index": 398,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Assigned issue",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/issues/398",
+                "body": "Please check.",
+                "assignees": [{"login": "Dev.User"}],
+                "labels": [],
+                "comments": [],
+            }
+            pr = {
+                "index": 44,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Fix assigned issue",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/44",
+                "body": "Fixes #398",
+                "head": "fix/assigned-issue",
+                "headSha": "abc123",
+                "assignees": [],
+                "requested_reviewers": [],
+                "reviews": [],
+                "comments": [],
+            }
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+
+            with mock.patch.object(a2a_runner, "list_open_issues", return_value=[{"index": 398}]), \
+                mock.patch.object(a2a_runner, "fetch_issue", return_value=issue), \
+                mock.patch.object(a2a_runner, "list_open_prs", return_value=[{"index": 44}]), \
+                mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
+                events = bridge.discovery_once()
+
+            self.assertIn("skipped automatic issue analysis: linked PR exists", "\n".join(events))
+            self.assertNotIn("queued assigned issue triage", "\n".join(events))
+            self.assertEqual(bridge.jobs.qsize(), 0)
 
     def test_discovery_track_only_records_snapshot_without_queueing_assigned_issue(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1757,7 +2043,7 @@ mid-human-review
 
             self.assertTrue(bridge.jobs.empty())
 
-    def test_stale_issue_scan_queues_only_untackled_external_issues(self):
+    def test_stale_issue_scan_only_queues_assigned_external_issues_without_pr(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
                 **{
@@ -1772,7 +2058,7 @@ mid-human-review
                     "index": 1,
                     "state": "open",
                     "author": {"login": "Other.User"},
-                    "title": "Untackled",
+                    "title": "Unassigned",
                     "url": "https://gitea.example.com/ExampleOrg/project-core/issues/1",
                     "body": "Needs owner.",
                     "assignees": [],
@@ -1797,7 +2083,29 @@ mid-human-review
                     "title": "Has PR",
                     "url": "https://gitea.example.com/ExampleOrg/project-core/issues/3",
                     "body": "Handled by PR #44.",
-                    "assignees": [],
+                    "assignees": [{"login": "Dev.User"}],
+                    "labels": [],
+                    "comments": [],
+                },
+                "4": {
+                    "index": 4,
+                    "state": "open",
+                    "author": {"login": "Other.User"},
+                    "title": "Assigned to me",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/issues/4",
+                    "body": "Needs owner.",
+                    "assignees": [{"login": "Dev.User"}],
+                    "labels": [],
+                    "comments": [],
+                },
+                "5": {
+                    "index": 5,
+                    "state": "open",
+                    "author": {"login": "Dev.User"},
+                    "title": "Own assigned issue",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/issues/5",
+                    "body": "Needs owner.",
+                    "assignees": [{"login": "Dev.User"}],
                     "labels": [],
                     "comments": [],
                 },
@@ -1806,19 +2114,22 @@ mid-human-review
             with mock.patch.object(
                 a2a_runner,
                 "list_open_issues",
-                return_value=[{"index": 1}, {"index": 2}, {"index": 3}],
+                return_value=[{"index": 1}, {"index": 2}, {"index": 3}, {"index": 4}, {"index": 5}],
             ), mock.patch.object(a2a_runner, "fetch_issue", side_effect=lambda number, repo, timeout=10: issues[number]):
                 events = bridge.stale_issues_once()
 
-            self.assertIn("queued stale issue scan", "\n".join(events))
-            self.assertIn("skipped assigned issue", "\n".join(events))
-            self.assertIn("skipped linked PR", "\n".join(events))
+            event_text = "\n".join(events)
+            self.assertIn("skipped automatic issue analysis: issue is not assigned to you", event_text)
+            self.assertIn("skipped automatic issue analysis: linked PR exists", event_text)
+            self.assertIn("skipped automatic issue analysis: issue was created by you", event_text)
+            self.assertIn("queued related issue assessment", event_text)
+            self.assertNotIn("queued stale issue scan", event_text)
             self.assertEqual(bridge.jobs.qsize(), 1)
             job = bridge.jobs.get_nowait()
-            self.assertEqual(job.kind, "issue_stale_scan")
-            self.assertTrue(job.dedupe_key.startswith("ExampleOrg/project-core#stale-1:"))
+            self.assertEqual(job.kind, "issue")
+            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#4")
 
-    def test_stale_issue_scan_related_issue_queues_assessment(self):
+    def test_stale_issue_scan_skips_own_assigned_issue(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
                 **{
@@ -1835,7 +2146,7 @@ mid-human-review
                 "title": "My stale issue",
                 "url": "https://gitea.example.com/ExampleOrg/project-core/issues/4",
                 "body": "Needs assessment.",
-                "assignees": [],
+                "assignees": [{"login": "Dev.User"}],
                 "labels": [],
                 "comments": [],
             }
@@ -1844,10 +2155,8 @@ mid-human-review
                 mock.patch.object(a2a_runner, "fetch_issue", return_value=issue):
                 events = bridge.stale_issues_once()
 
-            self.assertIn("queued related issue assessment", "\n".join(events))
-            job = bridge.jobs.get_nowait()
-            self.assertEqual(job.kind, "issue")
-            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#4")
+            self.assertIn("skipped automatic issue analysis: issue was created by you", "\n".join(events))
+            self.assertEqual(bridge.jobs.qsize(), 0)
 
     def test_stale_issue_decision_and_candidate_extraction(self):
         review = """# Stale Issue Scan
@@ -1869,6 +2178,10 @@ Still valid and should be assigned.
         self.assertIn("Automated stale issue scan", a2a_runner.format_stale_issue_comment(review))
         self.assertEqual(
             a2a_runner.job_tracking_item_key("ExampleOrg/project-core#stale-1:abc123", "issue_stale_scan"),
+            "ExampleOrg/project-core#issue-1",
+        )
+        self.assertEqual(
+            a2a_runner.job_tracking_item_key("ExampleOrg/project-core#1:auto-fix", "issue_auto_fix"),
             "ExampleOrg/project-core#issue-1",
         )
 
@@ -2213,6 +2526,35 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("| Decision | `SHIP` |", saved_review)
         self.assertNotIn("| Decision | `NEEDS-HUMAN` |", saved_review)
 
+    def test_task_review_payload_exposes_issue_auto_fix_approval(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "task"
+            task_dir.mkdir()
+            record = {
+                "task_id": "task",
+                "repo": "ExampleOrg/project-core",
+                "item_type": "issue",
+                "target_index": "254",
+                "issue": "254",
+                "issue_url": "https://gitea.example.com/ExampleOrg/project-core/issues/254",
+                "title": "Use team ACME email",
+                "runtime_status": "succeeded",
+                "automation_decision": "easy-direct",
+                "automation_status": "easy-direct-blocked",
+                "strict_easy_gate_passed": False,
+                "implementation_result": {"status": "skipped"},
+                "posted": False,
+            }
+            a2a_runner.write_json(task_dir / "record.json", record)
+            a2a_runner.write_text(task_dir / "review.md", "# Issue Review\n\n## Automation Decision\neasy-direct\n")
+
+            payload = a2a_runner.task_review_payload(task_dir)
+
+        self.assertEqual(payload["automation_decision"], "easy-direct")
+        self.assertEqual(payload["automation_status"], "easy-direct-blocked")
+        self.assertTrue(payload["auto_fix_approval_available"])
+        self.assertEqual(payload["implementation_result"]["status"], "skipped")
+
     def test_posting_low_confidence_review_normalizes_record_to_succeeded(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             task_dir = Path(tmpdir) / "task"
@@ -2475,6 +2817,13 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("const detailList = showIssueAssessment ? \"\"", inspector_logic)
         self.assertIn("Open analysis", inspector_logic)
         self.assertIn("data-open-draft", inspector_logic)
+        self.assertIn("issueAutoFixApprovalAllowed", inspector_logic)
+        self.assertIn("canApproveIssueAutoFix", inspector_logic)
+        self.assertIn("Approve auto-fix", inspector_logic)
+        self.assertIn("data-issue-auto-fix", inspector_logic)
+        self.assertIn("data-fix-repo", inspector_logic)
+        self.assertIn("data-fix-number", inspector_logic)
+        self.assertIn("/api/issue-auto-fix/queue", ui)
         self.assertIn("issueHumanHandoffTakeoverAllowed", inspector_logic)
         self.assertIn("canTakeIssueHandoff", inspector_logic)
         self.assertIn("Take over", inspector_logic)
@@ -2529,6 +2878,7 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("handleInspectorClick", bind_logic)
         self.assertIn("[data-attention-step]", ui)
         self.assertIn("[data-open-draft]", ui)
+        self.assertIn("[data-issue-auto-fix]", ui)
         self.assertIn("[data-human-handoff]", ui)
         self.assertIn('$("board-inspector").addEventListener("click"', ui)
 
@@ -2598,6 +2948,9 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("/api/task-review/save", ui)
         self.assertIn("/api/task-review/post", ui)
         self.assertIn("Post approved comment", ui)
+        self.assertIn('id="draft-approve-auto-fix"', ui)
+        self.assertIn("draftAutoFixApprovalAllowed", ui)
+        self.assertIn("approveLoadedDraftAutoFix", ui)
         self.assertIn("draftLoadSeq", ui)
         self.assertIn("No unposted review drafts.", ui)
         self.assertIn("data-draft-ref", ui)
