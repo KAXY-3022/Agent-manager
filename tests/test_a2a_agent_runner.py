@@ -2804,7 +2804,7 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertNotIn("reviewBadge(item)", card_badges)
         self.assertNotIn("attentionBadge(item)", card_badges)
 
-    def test_pr_cards_render_compact_identity_only(self):
+    def test_pr_cards_render_compact_identity_with_linked_issues(self):
         ui = a2a_runner.load_ui_html()
         identity_marker = "const prCardIdentity ="
         identity_start = ui.index(identity_marker)
@@ -2818,6 +2818,9 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("repoShortName(item.repo)", identity_card)
         self.assertNotIn("shortUser(item.author", identity_card)
         self.assertIn("PR#${esc(item.number)}", identity_card)
+        self.assertIn("linked_issues", identity_card)
+        self.assertIn("work-card-linked-issue", identity_card)
+        self.assertIn("Linked issue #", identity_card)
         self.assertIn("prReviewFlag(item)", identity_card)
         self.assertIn("prCardIdentity(item)", work_card)
         self.assertIn("shortUser(item.author", work_card)

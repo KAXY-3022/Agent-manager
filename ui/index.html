@@ -992,6 +992,28 @@
       font-size: 11px;
       font-weight: 900;
     }
+    .work-card-linked-issues {
+      min-width: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      overflow: hidden;
+    }
+    .work-card-linked-issue {
+      flex: 0 0 auto;
+      min-height: 16px;
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid color-mix(in srgb, var(--rel-linked) 42%, var(--line));
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--rel-linked) 10%, transparent);
+      color: var(--muted);
+      padding: 0 5px;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 900;
+      line-height: 1;
+    }
     .work-card-review-flag {
       min-height: 16px;
       display: inline-flex;
@@ -2868,8 +2890,22 @@
       const repo = repoShortName(item.repo);
       const label = `${repo} / PR#${item.number}`;
       const reviewFlag = prReviewFlag(item);
+      const linkedIssues = ((item.snapshot && item.snapshot.linked_issues) || []).slice(0, 2);
+      const issueLinks = linkedIssues.map(number => {
+        const url = item.url ? item.url.replace(/\/pulls\/\d+$/, `/issues/${number}`) : "";
+        const token = `<span class="work-card-linked-issue">#${esc(number)}</span>`;
+        return url
+          ? `<a href="${esc(url)}" target="_blank" rel="noreferrer" title="Linked issue #${esc(number)}">${token}</a>`
+          : token;
+      }).join("");
+      const overflow = ((item.snapshot && item.snapshot.linked_issues) || []).length > linkedIssues.length
+        ? `<span class="work-card-linked-issue" title="${esc(((item.snapshot && item.snapshot.linked_issues) || []).length)} linked issues">+${esc(((item.snapshot && item.snapshot.linked_issues) || []).length - linkedIssues.length)}</span>`
+        : "";
+      const issueBlock = issueLinks || overflow
+        ? `<span class="work-card-linked-issues" aria-label="Linked issues">${issueLinks}${overflow}</span>`
+        : "";
       const content = `<div class="work-card-identity-main" title="${esc(item.repo || repo)}">${esc(repo)}</div>
-        <div class="work-card-identity-sub"><span class="work-card-pr-number">PR#${esc(item.number)}</span>${reviewFlag}</div>`;
+        <div class="work-card-identity-sub"><span class="work-card-pr-number">PR#${esc(item.number)}</span>${issueBlock}${reviewFlag}</div>`;
       return item.url
         ? `<a href="${esc(item.url)}" target="_blank" rel="noreferrer" aria-label="${esc(label)}" title="${esc(item.title || label)}">${content}</a>`
         : content;
