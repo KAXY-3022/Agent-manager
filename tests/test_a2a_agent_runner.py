@@ -2858,6 +2858,37 @@ Still valid and should be assigned.
         self.assertIn("| Decision | `NEEDS-HUMAN` |", comment)
         self.assertNotIn("```markdown", comment)
 
+    def test_format_pr_comment_unwraps_header_plus_markdown_fenced_report(self):
+        report = """# PR Review
+## Suggested PR Comment
+_Automated PR review from A2A agent runner. Read-only review; no code changes, approvals, merges, or deployments were performed._
+
+```markdown
+## PR Review
+
+| Field | Value |
+|-------|-------|
+| Decision | `BLOCK` |
+
+### Findings
+- `[blocking]` `a.py:1` Bad.
+```
+"""
+
+        comment = a2a_runner.format_pr_comment(report)
+        body = a2a_runner.build_comment_body(
+            {"item_type": "pull_request"},
+            report,
+            suggested_only=True,
+            max_chars=12000,
+        )
+
+        self.assertTrue(comment.startswith("## PR Review"))
+        self.assertIn("| Decision | `BLOCK` |", comment)
+        self.assertNotIn("```markdown", comment)
+        self.assertNotIn("```markdown", body)
+        self.assertEqual(body.count(a2a_runner.PR_POST_HEADER), 1)
+
     def test_format_pr_comment_builds_code_reviewer_fallback(self):
         review = """# PR Review
 ## Findings
@@ -3010,6 +3041,44 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("| Decision | `SHIP` |", saved["suggested_comment"])
         self.assertIn("| Decision | `SHIP` |", saved_review)
         self.assertNotIn("| Decision | `NEEDS-HUMAN` |", saved_review)
+
+    def test_save_pr_suggested_comment_strips_header_and_markdown_fence(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "task"
+            task_dir.mkdir()
+            record = {
+                "task_id": "task",
+                "repo": "ExampleOrg/project-core",
+                "item_type": "pull_request",
+                "target_index": "503",
+                "runtime_status": "succeeded",
+                "posted": False,
+            }
+            a2a_runner.write_json(task_dir / "record.json", record)
+            a2a_runner.write_text(
+                task_dir / "review.md",
+                "# PR Review\n\n"
+                "## Suggested PR Comment\n\n"
+                "Old comment.",
+            )
+
+            saved = a2a_runner.save_task_suggested_comment(
+                task_dir,
+                "_Automated PR review from A2A agent runner. Read-only review; no code changes, approvals, merges, or deployments were performed._\n\n"
+                "```markdown\n"
+                "## PR Review\n\n"
+                "| Field | Value |\n"
+                "|-------|-------|\n"
+                "| Decision | `BLOCK` |\n"
+                "```",
+            )
+            saved_review = (task_dir / "review.md").read_text(encoding="utf-8")
+
+        self.assertIn("## PR Review", saved["suggested_comment"])
+        self.assertIn("| Decision | `BLOCK` |", saved["comment_body"])
+        self.assertNotIn("```markdown", saved["suggested_comment"])
+        self.assertNotIn("```markdown", saved["comment_body"])
+        self.assertNotIn("```markdown", saved_review)
 
     def test_task_review_payload_exposes_issue_auto_fix_approval(self):
         with tempfile.TemporaryDirectory() as tmpdir:

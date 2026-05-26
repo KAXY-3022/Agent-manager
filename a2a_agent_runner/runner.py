@@ -2436,6 +2436,13 @@ def unwrap_markdown_comment_fence(markdown: str) -> str:
     return match.group("body").strip()
 
 
+def normalize_pr_suggested_comment(markdown: str) -> str:
+    text = unwrap_markdown_comment_fence(markdown).strip()
+    if text.startswith(PR_POST_HEADER):
+        text = unwrap_markdown_comment_fence(text[len(PR_POST_HEADER) :].strip()).strip()
+    return text
+
+
 def internal_review_section_boundary(markdown: str) -> re.Match[str] | None:
     section_names = "|".join(re.escape(name) for name in INTERNAL_REVIEW_SECTIONS)
     return re.search(rf"(?m)^##\s+(?:{section_names})\s*$", markdown)
@@ -2533,7 +2540,7 @@ def normalize_verdict(value: str) -> str:
 
 
 def format_pr_comment(review: str) -> str:
-    suggested = extract_suggested_comment(review).strip()
+    suggested = normalize_pr_suggested_comment(extract_suggested_comment(review))
     if (
         "## PR Review" in suggested
         and code_reviewer_report_decision(suggested)
@@ -2678,6 +2685,8 @@ def suggested_comment_heading(record: dict[str, Any]) -> str:
 def replace_suggested_comment_section(review: str, record: dict[str, Any], suggested_comment: str) -> str:
     heading = suggested_comment_heading(record)
     comment = str(suggested_comment or "").strip()
+    if record.get("item_type") == "pull_request":
+        comment = normalize_pr_suggested_comment(comment)
     for marker in ("## Suggested Issue Comment", "## Suggested PR Comment"):
         if marker not in review:
             continue
