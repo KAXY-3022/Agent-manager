@@ -201,6 +201,19 @@ class RunnerStateTests(unittest.TestCase):
             "K2Lab/sherpa",
         )
 
+    def test_repo_clone_url_prefers_https_url_and_adds_git_suffix(self):
+        self.assertEqual(
+            a2a_runner.repo_clone_url_from_repo_item(
+                {
+                    "owner": "K2Lab",
+                    "name": "sherpa",
+                    "ssh": "git@git.k2lab.ai:K2Lab/sherpa.git",
+                    "url": "https://git.k2lab.ai/K2Lab/sherpa",
+                }
+            ),
+            "https://git.k2lab.ai/K2Lab/sherpa.git",
+        )
+
     def test_pr_tracking_records_head_changed_at_only_when_head_moves(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store = self.make_store(tmpdir)
@@ -3934,6 +3947,7 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
 
     def test_comment_triggered_pr_review_job_does_not_auto_post(self):
         with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "project-core").mkdir()
             config = replace(self.make_config(tmpdir), pr_auto_post=True)
             bridge = a2a_runner.WebhookBridge(config, start_worker=False)
             job = a2a_runner.WebhookJob(
@@ -3961,6 +3975,7 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
 
     def test_worker_pr_review_uses_complete_comments_and_diff_defaults(self):
         with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "project-core").mkdir()
             bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
             job = a2a_runner.WebhookJob(
                 kind="pr_review",
@@ -3987,6 +4002,94 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
 
         self.assertEqual(captured["max_comments"], a2a_runner.PR_REVIEW_COMPLETE_COMMENTS)
         self.assertEqual(captured["max_diff_chars"], a2a_runner.PR_REVIEW_COMPLETE_DIFF_CHARS)
+
+    def test_worker_pr_review_uses_review_only_checkout_when_workspace_repo_missing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="manual-K2Lab-sherpa-31-abc123",
+                event_type="pr_review_manual",
+                dedupe_key="K2Lab/sherpa#31@abc123",
+                owner="K2Lab",
+                repo="sherpa",
+                number=31,
+                title="Needs review",
+                url="https://git.k2lab.ai/K2Lab/sherpa/pulls/31",
+                head_sha="abc123",
+            )
+            checkout = Path(tmpdir) / "review-repos" / "K2Lab-sherpa"
+            checkout.mkdir(parents=True)
+            captured = {}
+
+            with mock.patch.object(a2a_runner, "sync_review_repo", return_value=checkout) as sync_review_repo, \
+                mock.patch.object(a2a_runner, "command_pr_review", side_effect=lambda args: captured.update({"component": args.component}) or 0):
+                bridge._run_job(job)
+
+        sync_review_repo.assert_called_once_with("K2Lab/sherpa", Path(tmpdir) / "review-repos" / "K2Lab-sherpa")
+        self.assertEqual(captured["component"], str(checkout))
+
+    def test_worker_pr_review_prefers_workspace_checkout_when_present(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "sherpa").mkdir()
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="manual-K2Lab-sherpa-31-abc123",
+                event_type="pr_review_manual",
+                dedupe_key="K2Lab/sherpa#31@abc123",
+                owner="K2Lab",
+                repo="sherpa",
+                number=31,
+                title="Needs review",
+                url="https://git.k2lab.ai/K2Lab/sherpa/pulls/31",
+                head_sha="abc123",
+            )
+            captured = {}
+
+            with mock.patch.object(a2a_runner, "sync_review_repo") as sync_review_repo, \
+                mock.patch.object(a2a_runner, "command_pr_review", side_effect=lambda args: captured.update({"component": args.component}) or 0):
+                bridge._run_job(job)
+
+        sync_review_repo.assert_not_called()
+        self.assertEqual(captured["component"], str(Path(tmpdir) / "sherpa"))
+
+    def test_sync_review_repo_clones_resolved_https_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "review-repos" / "K2Lab-sherpa"
+            calls = []
+
+            def fake_run_command(args, **kwargs):
+                calls.append(args)
+                return a2a_runner.subprocess.CompletedProcess(args, 0, "", "")
+
+            with mock.patch.object(
+                a2a_runner,
+                "fetch_repo_item",
+                return_value={"owner": "K2Lab", "name": "sherpa", "url": "https://git.k2lab.ai/K2Lab/sherpa"},
+            ), mock.patch.object(a2a_runner, "run_command", side_effect=fake_run_command):
+                result = a2a_runner.sync_review_repo("K2Lab/sherpa", target)
+
+        self.assertEqual(result, target)
+        self.assertEqual(
+            calls,
+            [["git", "clone", "--depth", "1", "https://git.k2lab.ai/K2Lab/sherpa.git", str(target)]],
+        )
+
+    def test_sync_review_repo_uses_cached_checkout_when_fetch_fails(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "review-repos" / "K2Lab-sherpa"
+            (target / ".git").mkdir(parents=True)
+            args = ["git", "-C", str(target), "fetch", "--all", "--prune"]
+
+            with mock.patch.object(
+                a2a_runner,
+                "run_command",
+                return_value=a2a_runner.subprocess.CompletedProcess(args, 1, "", "network down"),
+            ):
+                result = a2a_runner.sync_review_repo("K2Lab/sherpa", target)
+
+        self.assertEqual(result, target)
 
     def test_duplicate_comment_skip_marks_job_done_and_delivery_ignored(self):
         with tempfile.TemporaryDirectory() as tmpdir:

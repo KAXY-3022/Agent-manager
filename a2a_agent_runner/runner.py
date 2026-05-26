@@ -597,6 +597,23 @@ def repo_slug_from_repo_item(item: dict[str, Any]) -> str:
     return f"{owner_name}/{repo_name}"
 
 
+def repo_clone_url_from_repo_item(item: dict[str, Any]) -> str:
+    url = first_text(item.get("clone_url"), item.get("html_url"), item.get("url"))
+    if not url:
+        url = first_text(item.get("ssh"))
+    if url.startswith("http") and not url.endswith(".git"):
+        url = f"{url}.git"
+    return url
+
+
+def fetch_repo_item(repo_slug_value: str, timeout: int = 30) -> dict[str, Any]:
+    owner, repo_name = split_repo_slug(repo_slug_value)
+    for item in list_owner_repos(owner, limit=200, timeout=timeout):
+        if repo_slug_from_repo_item(item).lower() == f"{owner}/{repo_name}".lower():
+            return item
+    raise DemoError(f"repo {repo_slug_value} was not found in owner {owner}")
+
+
 def fetch_pr_review_comments(pull: str, repo: str, timeout: int = 90) -> list[Any]:
     result = run_command(
         [
@@ -3138,6 +3155,33 @@ def discover_owner_repo_slugs(owner: str, limit: int = 200) -> tuple[str, ...]:
 def component_exists_for_repo(a2a_root: Path, repo_name: str) -> bool:
     path = a2a_root / repo_name
     return path.exists() and path.is_dir()
+
+
+def review_repo_root(runner_home: Path) -> Path:
+    return runner_home / "review-repos"
+
+
+def review_repo_path(runner_home: Path, repo_slug_value: str) -> Path:
+    return review_repo_root(runner_home) / repo_slug(repo_slug_value)
+
+
+def sync_review_repo(repo_slug_value: str, target: Path, timeout: int = 300) -> Path:
+    if (target / ".git").exists():
+        fetch = run_command(["git", "-C", str(target), "fetch", "--all", "--prune"], cwd=target, timeout=timeout)
+        if fetch.returncode != 0:
+            details = (fetch.stderr or fetch.stdout).strip()
+            logging.warning("failed to update review-only repo %s; using cached checkout: %s", repo_slug_value, details)
+        return target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    repo_item = fetch_repo_item(repo_slug_value)
+    clone_url = repo_clone_url_from_repo_item(repo_item)
+    if not clone_url:
+        raise DemoError(f"clone URL was not found for review-only repo {repo_slug_value}")
+    clone = run_command(["git", "clone", "--depth", "1", clone_url, str(target)], cwd=target.parent, timeout=timeout)
+    if clone.returncode != 0:
+        details = (clone.stderr or clone.stdout).strip()
+        raise DemoError(f"failed to clone review-only repo {repo_slug_value}: {details}")
+    return target
 
 
 def expand_repo_list(value: str, a2a_root: Path) -> tuple[str, ...]:
@@ -5846,6 +5890,10 @@ class WebhookBridge:
             args.pull = str(job.number)
             args.post = self.config.pr_auto_post and not is_comment_job(job)
             args.max_diff_chars = PR_REVIEW_COMPLETE_DIFF_CHARS
+            component = Path(args.component)
+            if not component.exists():
+                component = sync_review_repo(args.repo, review_repo_path(self.config.runner_home, args.repo))
+                args.component = str(component)
             exit_code = command_pr_review(args)
             if exit_code:
                 raise DemoError(f"PR review job failed with exit code {exit_code}")

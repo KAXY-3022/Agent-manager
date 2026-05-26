@@ -8,6 +8,7 @@ gitea-webhook.env
 tasks/
 logs/
 state/
+review-repos/
 *.sqlite
 *.sqlite3
 *.sqlite3-*
