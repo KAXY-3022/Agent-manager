@@ -2065,7 +2065,25 @@ def issue_triage_status_for_item(repo: str, item_type: str, number: int) -> dict
     }
 
 
-def review_status_for_item(repo: str, item_type: str, number: int, current_head_sha: str = "") -> dict[str, Any]:
+def gitea_review_decision(review: dict[str, Any] | None) -> str:
+    state = str((review or {}).get("state") or "").upper()
+    if state == "APPROVED":
+        return "approved"
+    if state in {"REJECTED", "REQUEST_CHANGES"}:
+        return "request_changes"
+    return ""
+
+
+def review_status_for_item(
+    repo: str,
+    item_type: str,
+    number: int,
+    current_head_sha: str = "",
+    *,
+    snapshot: dict[str, Any] | None = None,
+    username: str = "",
+    aliases: tuple[str, ...] = (),
+) -> dict[str, Any]:
     if item_type != "pull_request":
         return {
             "state": "not_applicable",
@@ -2076,6 +2094,17 @@ def review_status_for_item(repo: str, item_type: str, number: int, current_head_
             "task_count": 0,
         }
 
+    expected_usernames = username_candidates(username, aliases) if username else ()
+    external_review = latest_review_by_user(snapshot or {}, expected_usernames) if expected_usernames else None
+    external_reviewed = latest_review_is_completed(external_review)
+    external_head_sha = str((snapshot or {}).get("head_sha") or "")
+    external_current = bool(external_reviewed and (not current_head_sha or external_head_sha == current_head_sha))
+    external_review_decision = gitea_review_decision(external_review) if external_current else ""
+    external_review_decision_label = (
+        "approved" if external_review_decision == "approved" else ("reviewed" if external_current else "")
+    )
+    external_review_at = (external_review or {}).get("updated") or (external_review or {}).get("created")
+
     matches: list[tuple[Path, dict[str, Any]]] = []
     for task_dir, record in iter_records():
         target = record.get("target_index") or record.get("pull")
@@ -2084,12 +2113,19 @@ def review_status_for_item(repo: str, item_type: str, number: int, current_head_
 
     if not matches:
         return {
-            "state": "none",
-            "label": "",
-            "reviewed": False,
+            "state": "external" if external_current else "none",
+            "label": "reviewed" if external_current else "",
+            "reviewed": external_current,
             "posted": False,
             "stale": False,
             "task_count": 0,
+            "runtime_used": "gitea" if external_current else "",
+            "runtime_status": "succeeded" if external_current else "",
+            "reviewed_head_sha": external_head_sha if external_current else "",
+            "current_head_sha": current_head_sha,
+            "review_decision": external_review_decision,
+            "review_decision_label": external_review_decision_label,
+            "latest_at": external_review_at,
         }
 
     latest_task_dir, latest_record = matches[0]
@@ -2129,13 +2165,22 @@ def review_status_for_item(repo: str, item_type: str, number: int, current_head_
     reviewed = bool(reviewed_records)
     reviewed_head = str(record.get("head_sha") or "")
     has_current_review = bool(current_reviewed) if current_head_sha else reviewed
+    if external_current:
+        has_current_review = True
+        reviewed = True
+        reviewed_head = external_head_sha
     stale = bool(reviewed and current_head_sha and not has_current_review)
     review_decision = review_decision_for_task(task_dir, record) if reviewed else ""
+    if external_current and not review_decision:
+        review_decision = external_review_decision
     review_decision_label = "approved" if review_decision == "approved" else ("reviewed" if reviewed else "")
 
     if stale:
         state = "stale"
         label = "stale"
+    elif external_current and not current_reviewed and not record.get("posted"):
+        state = "external"
+        label = "reviewed"
     elif record.get("posted"):
         state = "posted"
         label = "reviewed"
@@ -2156,10 +2201,10 @@ def review_status_for_item(repo: str, item_type: str, number: int, current_head_
         "posted": bool(record.get("posted")),
         "stale": stale,
         "task_count": len(matches),
-        "latest_at": record.get("created_at"),
+        "latest_at": external_review_at if state == "external" else record.get("created_at"),
         "posted_at": record.get("posted_at"),
-        "runtime_used": record.get("runtime_used"),
-        "runtime_status": record.get("runtime_status"),
+        "runtime_used": "gitea" if state == "external" else record.get("runtime_used"),
+        "runtime_status": "succeeded" if state == "external" else record.get("runtime_status"),
         "reviewed_head_sha": reviewed_head,
         "current_head_sha": current_head_sha,
         "review_decision": review_decision,
@@ -2172,11 +2217,11 @@ def review_status_for_item(repo: str, item_type: str, number: int, current_head_
         "latest_head_sha": str(latest_record.get("head_sha") or ""),
         "latest_task_id": latest_record.get("task_id") or latest_task_dir.name,
         "latest_task_dir": str(latest_task_dir),
-        "current_head_failed": bool(current_failed),
-        "failed_at": current_failed[0][1].get("created_at") if current_failed else None,
-        "failed_runtime_used": current_failed[0][1].get("runtime_used") if current_failed else None,
-        "failed_task_id": (current_failed[0][1].get("task_id") or current_failed[0][0].name) if current_failed else "",
-        "failed_task_dir": str(current_failed[0][0]) if current_failed else "",
+        "current_head_failed": bool(current_failed) and not external_current,
+        "failed_at": current_failed[0][1].get("created_at") if current_failed and not external_current else None,
+        "failed_runtime_used": current_failed[0][1].get("runtime_used") if current_failed and not external_current else None,
+        "failed_task_id": (current_failed[0][1].get("task_id") or current_failed[0][0].name) if current_failed and not external_current else "",
+        "failed_task_dir": str(current_failed[0][0]) if current_failed and not external_current else "",
     }
 
 
@@ -3331,19 +3376,15 @@ def pr_has_requested_review(
     pr_data: dict[str, Any], expected_username: str, aliases: tuple[str, ...] = ()
 ) -> bool:
     expected_usernames = username_candidates(expected_username, aliases)
-    reviewers = pr_data.get("requested_reviewers")
-    if user_matches_any(reviewers, expected_usernames):
-        return True
-    reviews = pr_data.get("reviews")
-    if not isinstance(reviews, list):
-        return False
-    for review in reviews:
-        if not isinstance(review, dict):
-            continue
-        state = str(review.get("state") or "").upper()
-        if state == "REQUEST_REVIEW" and user_matches_any(review.get("reviewer"), expected_usernames):
-            return True
-    return False
+    return snapshot_review_requested_from_user(
+        {
+            "item_type": "pull_request",
+            "assignees": pr_data.get("assignees"),
+            "requested_reviewers": pr_data.get("requested_reviewers") or pr_data.get("requestedReviewers"),
+            "reviews": pr_data.get("reviews"),
+        },
+        expected_usernames,
+    )
 
 
 def user_name(value: Any) -> str:
@@ -3508,6 +3549,7 @@ def build_pr_snapshot(repo: str, pr_data: dict[str, Any], review_comments: list[
     reviews = compact_reviews(pr_data.get("reviews"))
     requested_reviewers = compact_users(pr_data.get("requested_reviewers") or pr_data.get("requestedReviewers"))
     review_requests = [item for item in reviews if item.get("state") == "REQUEST_REVIEW"]
+    review_progress = [item for item in reviews if str(item.get("state") or "").upper() in COMPLETED_REVIEW_STATES]
     state = "merged" if truthy_value(pr_data.get("hasMerged") or pr_data.get("merged")) else str(pr_data.get("state") or "")
     body = str(pr_data.get("body") or "")
     linked_issues = extract_issue_refs(first_text(pr_data.get("title")), body, *comment_bodies(pr_data.get("comments")))
@@ -3535,6 +3577,7 @@ def build_pr_snapshot(repo: str, pr_data: dict[str, Any], review_comments: list[
             if requested_reviewers or review_requests
             else ""
         ),
+        "review_progress_hash": sha256_text(stable_json(review_progress)) if review_progress else "",
         "comments": comments,
         "review_comments": inline_comments,
         "comment_count": len(comments),
@@ -3735,7 +3778,90 @@ def enrich_issue_snapshot_with_tracked_prs(
     return snapshot
 
 
+ACTIVE_REVIEW_REQUEST_STATES = {"REQUEST_REVIEW"}
+COMPLETED_REVIEW_STATES = {"APPROVED", "REJECTED", "REQUEST_CHANGES", "COMMENT", "COMMENTED", "DISMISSED"}
+
+
+def parse_event_timestamp(value: Any) -> float:
+    raw = str(value or "").strip()
+    if not raw:
+        return 0.0
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00").replace(" ", "T"))
+    except ValueError:
+        return 0.0
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.timestamp()
+
+
+def review_timestamp(review: dict[str, Any] | None) -> float:
+    if not review:
+        return 0.0
+    return max(parse_event_timestamp(review.get("updated")), parse_event_timestamp(review.get("created")))
+
+
+def review_sort_key(review: dict[str, Any]) -> tuple[float, int, str]:
+    try:
+        review_id = int(review.get("id") or 0)
+    except (TypeError, ValueError):
+        review_id = 0
+    return (review_timestamp(review), review_id, str(review.get("id") or ""))
+
+
+def latest_reviews_by_reviewer(reviews: Any) -> dict[str, dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    if not isinstance(reviews, list):
+        return latest
+    for review in reviews:
+        if not isinstance(review, dict):
+            continue
+        reviewer = user_name(review.get("reviewer")).strip().lower()
+        if not reviewer:
+            continue
+        previous = latest.get(reviewer)
+        if previous is None or review_sort_key(review) >= review_sort_key(previous):
+            latest[reviewer] = review
+    return latest
+
+
+def latest_review_by_user(snapshot: dict[str, Any], expected_usernames: tuple[str, ...]) -> dict[str, Any] | None:
+    matches = [
+        review
+        for review in latest_reviews_by_reviewer(snapshot.get("reviews")).values()
+        if user_matches_any(review.get("reviewer"), expected_usernames)
+    ]
+    if not matches:
+        return None
+    return sorted(matches, key=review_sort_key)[-1]
+
+
+def latest_review_is_completed(review: dict[str, Any] | None) -> bool:
+    if not review:
+        return False
+    return str(review.get("state") or "").upper() in COMPLETED_REVIEW_STATES
+
+
+def normalized_user_name_set(value: Any) -> set[str]:
+    if not value:
+        return set()
+    if isinstance(value, (list, tuple, set)):
+        names: set[str] = set()
+        for item in value:
+            names.update(normalized_user_name_set(item))
+        return names
+    name = user_name(value).strip().lower()
+    return {name} if name else set()
+
+
+def snapshot_reviewed_by_user(snapshot: dict[str, Any], expected_usernames: tuple[str, ...]) -> bool:
+    return latest_review_is_completed(latest_review_by_user(snapshot, expected_usernames))
+
+
 def snapshot_review_requested_from_user(snapshot: dict[str, Any], expected_usernames: tuple[str, ...]) -> bool:
+    latest_user_review = latest_review_by_user(snapshot, expected_usernames)
+    if latest_review_is_completed(latest_user_review):
+        return False
     if str(snapshot.get("item_type") or "") == "pull_request" and user_matches_any(
         snapshot.get("assignees"), expected_usernames
     ):
@@ -3746,32 +3872,31 @@ def snapshot_review_requested_from_user(snapshot: dict[str, Any], expected_usern
     reviews = snapshot.get("reviews")
     if not isinstance(reviews, list):
         return False
-    for review in reviews:
-        if not isinstance(review, dict):
-            continue
-        state = str(review.get("state") or "").upper()
-        if state == "REQUEST_REVIEW" and user_matches_any(review.get("reviewer"), expected_usernames):
-            return True
-    return False
+    return any(
+        str(review.get("state") or "").upper() in ACTIVE_REVIEW_REQUEST_STATES
+        and user_matches_any(review.get("reviewer"), expected_usernames)
+        for review in latest_reviews_by_reviewer(reviews).values()
+    )
 
 
 def snapshot_has_review_request(snapshot: dict[str, Any]) -> bool:
-    assignees = snapshot.get("assignees")
-    if str(snapshot.get("item_type") or "") == "pull_request" and (
-        (isinstance(assignees, list) and bool(assignees)) or (not isinstance(assignees, list) and bool(assignees))
-    ):
-        return True
-    reviewers = snapshot.get("requested_reviewers")
-    if isinstance(reviewers, list) and reviewers:
-        return True
-    if isinstance(reviewers, (str, dict)) and reviewers:
-        return True
+    completed_reviewers = {
+        user_name(review.get("reviewer")).strip().lower()
+        for review in latest_reviews_by_reviewer(snapshot.get("reviews")).values()
+        if latest_review_is_completed(review)
+    }
+    review_targets: set[str] = set()
+    if str(snapshot.get("item_type") or "") == "pull_request":
+        review_targets.update(normalized_user_name_set(snapshot.get("assignees")))
+    review_targets.update(normalized_user_name_set(snapshot.get("requested_reviewers")))
+    if review_targets:
+        return bool(review_targets - completed_reviewers)
     reviews = snapshot.get("reviews")
     if not isinstance(reviews, list):
         return False
     return any(
-        isinstance(review, dict) and str(review.get("state") or "").upper() == "REQUEST_REVIEW"
-        for review in reviews
+        str(review.get("state") or "").upper() in ACTIVE_REVIEW_REQUEST_STATES
+        for review in latest_reviews_by_reviewer(reviews).values()
     )
 
 
@@ -4112,6 +4237,8 @@ def diff_snapshot_summary(old: dict[str, Any], new: dict[str, Any]) -> str:
         )
     if old.get("review_request_hash") != new.get("review_request_hash"):
         changes.append("review requests changed")
+    if old.get("review_progress_hash") != new.get("review_progress_hash"):
+        changes.append("review progress changed")
     return "; ".join(changes[:8]) or "snapshot changed"
 
 
@@ -4936,6 +5063,9 @@ class WebhookStateStore:
                     str(row[4] or ""),
                     int(row[5] or 0),
                     str(snapshot.get("head_sha") or ""),
+                    snapshot=snapshot,
+                    username=username,
+                    aliases=username_aliases,
                 )
             job_status = active_jobs.get(str(row[2] or "")) or {}
             if not job_status_visible_for_item(str(row[4] or ""), str(row[6] or ""), review_status, job_status):
@@ -5604,6 +5734,9 @@ class WebhookBridge:
                     "pull_request",
                     number,
                     current_head_sha,
+                    snapshot=snapshot,
+                    username=self.config.username,
+                    aliases=self.config.username_aliases,
                 )
                 current_head_job_status = self.store.job_status_for_key(current_head_key)
                 if (
@@ -5784,7 +5917,15 @@ class WebhookBridge:
             aliases=self.config.username_aliases,
             own_branch_prefixes=self.config.own_branch_prefixes,
         )
-        review_status = review_status_for_item(repo_slug_value, "pull_request", number, str(snapshot.get("head_sha") or ""))
+        review_status = review_status_for_item(
+            repo_slug_value,
+            "pull_request",
+            number,
+            str(snapshot.get("head_sha") or ""),
+            snapshot=snapshot,
+            username=self.config.username,
+            aliases=self.config.username_aliases,
+        )
         active_job = {}
         head_sha = str(snapshot.get("head_sha") or "")
         if head_sha and head_sha != "unknown":

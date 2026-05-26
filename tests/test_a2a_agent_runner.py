@@ -366,6 +366,109 @@ class RunnerStateTests(unittest.TestCase):
         self.assertTrue(issue_relationships["assigned_to_me"])
         self.assertFalse(issue_relationships["review_requested_from_me"])
 
+    def test_latest_manual_review_clears_prior_review_request_relationship(self):
+        snapshot = {
+            "item_type": "pull_request",
+            "author": "Other.User",
+            "assignees": [],
+            "requested_reviewers": [],
+            "reviews": [
+                {
+                    "id": 515,
+                    "reviewer": "Dev.User",
+                    "state": "REQUEST_REVIEW",
+                    "created": "2026-05-26T14:44:40+08:00",
+                    "updated": "",
+                },
+                {
+                    "id": 523,
+                    "reviewer": "Dev.User",
+                    "state": "APPROVED",
+                    "created": "2026-05-26T15:28:10+08:00",
+                    "updated": "",
+                },
+            ],
+        }
+
+        relationships = a2a_runner.snapshot_relationships(snapshot, "Dev.User")
+
+        self.assertFalse(relationships["review_requested_from_me"])
+        self.assertTrue(relationships["participating"])
+        self.assertTrue(a2a_runner.snapshot_reviewed_by_user(snapshot, ("Dev.User",)))
+
+    def test_current_head_manual_review_clears_assignment_request_relationship(self):
+        snapshot = {
+            "item_type": "pull_request",
+            "author": "Other.User",
+            "head_sha": "new-head",
+            "head_changed_at": "2026-05-26T15:00:00+08:00",
+            "assignees": ["Dev.User"],
+            "requested_reviewers": ["Dev.User"],
+            "reviews": [
+                {
+                    "id": 523,
+                    "reviewer": "Dev.User",
+                    "state": "APPROVED",
+                    "created": "2026-05-26T15:28:10+08:00",
+                    "updated": "",
+                },
+            ],
+        }
+
+        relationships = a2a_runner.snapshot_relationships(snapshot, "Dev.User")
+
+        self.assertTrue(relationships["assigned_to_me"])
+        self.assertFalse(relationships["review_requested_from_me"])
+        self.assertFalse(a2a_runner.snapshot_has_review_request(snapshot))
+
+    def test_completed_review_only_clears_that_reviewers_request(self):
+        snapshot = {
+            "item_type": "pull_request",
+            "author": "Other.User",
+            "head_sha": "new-head",
+            "head_changed_at": "2026-05-26T15:00:00+08:00",
+            "assignees": [],
+            "requested_reviewers": ["Dev.User", "Reviewer.Two"],
+            "reviews": [
+                {
+                    "id": 523,
+                    "reviewer": "Dev.User",
+                    "state": "APPROVED",
+                    "created": "2026-05-26T15:28:10+08:00",
+                    "updated": "",
+                },
+            ],
+        }
+
+        self.assertFalse(a2a_runner.snapshot_review_requested_from_user(snapshot, ("Dev.User",)))
+        self.assertTrue(a2a_runner.snapshot_review_requested_from_user(snapshot, ("Reviewer.Two",)))
+        self.assertTrue(a2a_runner.snapshot_has_review_request(snapshot))
+
+    def test_latest_completed_manual_review_clears_request_even_when_poll_observes_head_late(self):
+        snapshot = {
+            "item_type": "pull_request",
+            "author": "Other.User",
+            "head_sha": "new-head",
+            "head_changed_at": "2026-05-26T15:00:00+08:00",
+            "assignees": [],
+            "requested_reviewers": ["Dev.User"],
+            "reviews": [
+                {
+                    "id": 523,
+                    "reviewer": "Dev.User",
+                    "state": "APPROVED",
+                    "created": "2026-05-26T14:28:10+08:00",
+                    "updated": "",
+                },
+            ],
+        }
+
+        relationships = a2a_runner.snapshot_relationships(snapshot, "Dev.User")
+
+        self.assertFalse(relationships["review_requested_from_me"])
+        self.assertTrue(a2a_runner.snapshot_reviewed_by_user(snapshot, ("Dev.User",)))
+        self.assertFalse(a2a_runner.snapshot_has_review_request(snapshot))
+
     def test_successful_current_head_review_clears_failed_job_badge(self):
         original_iter_records = a2a_runner.iter_records
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -524,6 +627,133 @@ class RunnerStateTests(unittest.TestCase):
 
         self.assertFalse(status["reviewed"])
         self.assertTrue(status["stale"])
+
+    def test_manual_gitea_review_marks_current_head_reviewed(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = self.make_store(tmpdir)
+            head_sha = "1a9ca4088ac933fd32401ea5c0496be9d8095fec"
+            store.record_tracking_snapshot(
+                {
+                    "repo": "K2Lab/sherpa",
+                    "item_type": "pull_request",
+                    "number": 31,
+                    "title": "WIP refactor(lab): video knowledgebase",
+                    "url": "https://git.k2lab.ai/K2Lab/sherpa/pulls/31",
+                    "state": "open",
+                    "author": "Other.User",
+                    "updated": "2026-05-26T15:28:10+08:00",
+                    "head": "refactor/lab-video-knowledgebase",
+                    "head_sha": head_sha,
+                    "head_changed_at": "2026-05-26T15:00:00+08:00",
+                    "assignees": ["Dev.User"],
+                    "requested_reviewers": ["Dev.User"],
+                    "reviews": [
+                        {
+                            "id": 515,
+                            "reviewer": "Dev.User",
+                            "state": "REQUEST_REVIEW",
+                            "created": "2026-05-26T14:44:40+08:00",
+                            "updated": "",
+                        },
+                        {
+                            "id": 523,
+                            "reviewer": "Dev.User",
+                            "state": "APPROVED",
+                            "created": "2026-05-26T15:28:10+08:00",
+                            "updated": "",
+                        },
+                    ],
+                    "review_comments": [],
+                    "comments": [],
+                }
+            )
+            a2a_runner.iter_records = lambda: []
+            try:
+                items = store.tracked_items_dicts(
+                    10,
+                    username="Dev.User",
+                    state_filter="open",
+                )
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+        self.assertEqual(len(items), 1)
+        self.assertFalse(items[0]["relationships"]["review_requested_from_me"])
+        self.assertFalse(items[0]["has_review_request"])
+        self.assertTrue(items[0]["review_status"]["reviewed"])
+        self.assertEqual(items[0]["review_status"]["state"], "external")
+        self.assertEqual(items[0]["review_status"]["label"], "reviewed")
+        self.assertEqual(items[0]["review_status"]["runtime_used"], "gitea")
+        self.assertEqual(items[0]["review_status"]["runtime_status"], "succeeded")
+        self.assertEqual(items[0]["review_status"]["review_decision"], "approved")
+        self.assertFalse(items[0]["pr_review_action"]["available"])
+        self.assertEqual(items[0]["pr_review_action"]["reason"], "current head already reviewed")
+
+    def test_manual_gitea_review_suppresses_failed_current_head_job_badge(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            store = self.make_store(tmpdir)
+            head_sha = "abc123"
+            store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/service-api",
+                    "item_type": "pull_request",
+                    "number": 2,
+                    "title": "Reviewed PR",
+                    "url": "https://gitea.example.com/ExampleOrg/service-api/pulls/2",
+                    "state": "open",
+                    "author": "Other.User",
+                    "updated": "2026-05-26T15:28:10+08:00",
+                    "head": "feature/reviewed",
+                    "head_sha": head_sha,
+                    "head_changed_at": "2026-05-26T15:00:00+08:00",
+                    "assignees": ["Dev.User"],
+                    "requested_reviewers": ["Dev.User"],
+                    "reviews": [
+                        {
+                            "id": 523,
+                            "reviewer": "Dev.User",
+                            "state": "APPROVED",
+                            "created": "2026-05-26T15:28:10+08:00",
+                            "updated": "",
+                        },
+                    ],
+                    "review_comments": [],
+                    "comments": [],
+                }
+            )
+            failed_dir = Path(tmpdir) / "failed"
+            failed_dir.mkdir()
+            a2a_runner.iter_records = lambda: [
+                (
+                    failed_dir,
+                    {
+                        "created_at": "2026-05-26T15:10:00+08:00",
+                        "repo": "ExampleOrg/service-api",
+                        "item_type": "pull_request",
+                        "target_index": "2",
+                        "head_sha": head_sha,
+                        "runtime_status": "failed",
+                        "runtime_used": "codex",
+                        "posted": False,
+                    },
+                )
+            ]
+            try:
+                items = store.tracked_items_dicts(
+                    10,
+                    username="Dev.User",
+                    state_filter="open",
+                )
+            finally:
+                a2a_runner.iter_records = original_iter_records
+
+        self.assertEqual(len(items), 1)
+        self.assertTrue(items[0]["review_status"]["reviewed"])
+        self.assertFalse(items[0]["review_status"]["current_head_failed"])
+        self.assertEqual(items[0]["review_status"]["state"], "external")
+        self.assertEqual(items[0]["job_status"], {})
 
     def test_pr_review_status_exposes_request_changes_as_reviewed_decision(self):
         original_iter_records = a2a_runner.iter_records
@@ -2876,6 +3106,15 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertNotIn("badge(marker(item.item_type))", card_badges)
         self.assertNotIn("reviewBadge(item)", card_badges)
         self.assertNotIn("attentionBadge(item)", card_badges)
+
+    def test_reviewed_prs_do_not_stay_under_review_from_stale_request_metadata(self):
+        ui = a2a_runner.load_ui_html()
+        request_start = ui.index("const hasReviewRequest =")
+        request_end = ui.index("const itemKey =", request_start)
+        request_logic = ui[request_start:request_end]
+
+        self.assertIn("if (item.has_review_request) return true", request_logic)
+        self.assertIn("!(review.reviewed && !review.stale)", request_logic)
 
     def test_pr_cards_render_compact_identity_with_linked_issues(self):
         ui = a2a_runner.load_ui_html()
