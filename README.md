@@ -311,7 +311,9 @@ A2A_GITEA_STALE_ISSUE_CANDIDATES=
 
 Set `A2A_CODEX_MODEL_PROVIDER_BASE_URL` when jobs should use a custom Codex provider without depending on the active desktop provider. If `A2A_CODEX_OPENAI_API_KEY` is set, the runner passes it to `codex exec` as `OPENAI_API_KEY` only for the child process.
 
-If `A2A_GITEA_MONITOR_REPOS` or `A2A_GITEA_PR_REVIEW_POLL_REPOS` is omitted, the runner falls back to `A2A_GITEA_REPO`. Set repo lists to `local` to discover all Git repos under `A2A_WORKSPACE` from their `origin` remotes, or set an explicit comma-separated list such as `ExampleOrg/project-core,ExampleOrg/service-api`. Leaving the placeholder `owner/repo` means the monitor will not see project PR updates.
+If `A2A_GITEA_MONITOR_REPOS` or `A2A_GITEA_PR_REVIEW_POLL_REPOS` is omitted, the runner falls back to `A2A_GITEA_REPO`. Set repo lists to `local` to discover all Git repos under `A2A_WORKSPACE` from their `origin` remotes, set `K2Lab/*` to discover all repositories under a Gitea owner/org, or set an explicit comma-separated list such as `ExampleOrg/project-core,ExampleOrg/service-api`. Leaving the placeholder `owner/repo` means the monitor will not see project PR updates.
+
+Remote owner/org discovery tracks issues and PRs without requiring every repository to be cloned. Automatic issue analysis still requires a checkout under `A2A_WORKSPACE/<repo-name>`, because Codex jobs run against local repository files.
 
 `A2A_GITEA_USERNAME_ALIASES` lets the runner match alternate Gitea display/login names for the same person. `A2A_GITEA_OWN_BRANCH_PREFIXES` marks local agent-created PR branches as yours when older tracked snapshots are missing author data.
 

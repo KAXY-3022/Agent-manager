@@ -555,6 +555,48 @@ def list_open_issues(repo: str, limit: int, timeout: int = 30) -> list[dict[str,
     return [item for item in data if isinstance(item, dict)]
 
 
+def list_owner_repos(owner: str, limit: int = 200, timeout: int = 30) -> list[dict[str, Any]]:
+    result = run_command(
+        [
+            "tea",
+            "repos",
+            "list",
+            "--owner",
+            owner,
+            "--fields",
+            "owner,name,type,updated,url",
+            "--output",
+            "json",
+            "--limit",
+            str(limit),
+        ],
+        cwd=command_cwd(),
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        details = (result.stderr or result.stdout).strip()
+        raise DemoError(f"failed to list repos for owner {owner}: {details}")
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise DemoError(f"tea returned non-JSON output for repo list from owner {owner}") from exc
+    if not isinstance(data, list):
+        raise DemoError(f"unexpected tea JSON shape for repo list from owner {owner}")
+    return [item for item in data if isinstance(item, dict)]
+
+
+def repo_slug_from_repo_item(item: dict[str, Any]) -> str:
+    owner = item.get("owner")
+    if isinstance(owner, dict):
+        owner_name = first_text(owner.get("login"), owner.get("username"), owner.get("name"))
+    else:
+        owner_name = first_text(owner)
+    repo_name = first_text(item.get("name"))
+    if not owner_name or not repo_name:
+        return ""
+    return f"{owner_name}/{repo_name}"
+
+
 def fetch_pr_review_comments(pull: str, repo: str, timeout: int = 90) -> list[Any]:
     result = run_command(
         [
@@ -3084,12 +3126,29 @@ def discover_workspace_repo_slugs(a2a_root: Path) -> tuple[str, ...]:
     return tuple(slugs)
 
 
+def discover_owner_repo_slugs(owner: str, limit: int = 200) -> tuple[str, ...]:
+    slugs: list[str] = []
+    for item in list_owner_repos(owner, limit=limit):
+        slug = repo_slug_from_repo_item(item)
+        if slug and slug not in slugs:
+            slugs.append(slug)
+    return tuple(slugs)
+
+
+def component_exists_for_repo(a2a_root: Path, repo_name: str) -> bool:
+    path = a2a_root / repo_name
+    return path.exists() and path.is_dir()
+
+
 def expand_repo_list(value: str, a2a_root: Path) -> tuple[str, ...]:
     raw_repos = parse_csv(value)
     repos: list[str] = []
     for raw_repo in raw_repos:
         if raw_repo.lower() in {"auto", "local", "workspace", "*"}:
             candidates = discover_workspace_repo_slugs(a2a_root)
+        elif raw_repo.endswith("/*"):
+            owner = raw_repo[:-2].strip()
+            candidates = discover_owner_repo_slugs(owner) if owner else ()
         else:
             candidates = (raw_repo,)
         for repo in candidates:
@@ -5370,6 +5429,8 @@ class WebhookBridge:
                 )
                 if response.status_code == 202:
                     events.append(f"{repo_slug_value} issue#{number}: queued assigned issue triage")
+                elif response.body.get("reason"):
+                    events.append(f"{repo_slug_value} issue#{number}: skipped automatic issue analysis: {response.body.get('reason')}")
         return events
 
     def _stale_issues_repo(self, repo_slug_value: str) -> list[str]:
@@ -5907,6 +5968,8 @@ class WebhookBridge:
         )
         if skip_reason:
             return WebhookResponse(200, {"status": "ignored", "reason": skip_reason})
+        if not component_exists_for_repo(self.config.a2a_root, repo):
+            return WebhookResponse(200, {"status": "ignored", "reason": f"repository is tracked remotely but is not cloned under {self.config.a2a_root}"})
         job = WebhookJob(
             kind="issue",
             delivery_id=f"{delivery_prefix}-{owner}-{repo}-{number}",

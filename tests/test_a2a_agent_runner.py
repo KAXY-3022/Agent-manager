@@ -180,6 +180,27 @@ class RunnerStateTests(unittest.TestCase):
         self.assertTrue(items[0]["relationships"]["created_by_me"])
         self.assertTrue(items[0]["relationships"]["related_to_me"])
 
+    def test_expand_repo_list_supports_owner_wildcard(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with mock.patch.object(
+                a2a_runner,
+                "list_owner_repos",
+                return_value=[
+                    {"owner": "K2Lab", "name": "moras-api"},
+                    {"owner": "K2Lab", "name": "sherpa"},
+                ],
+            ) as list_owner_repos:
+                repos = a2a_runner.expand_repo_list("local,K2Lab/*,K2Lab/sherpa", Path(tmpdir))
+
+        list_owner_repos.assert_called_once_with("K2Lab", limit=200)
+        self.assertEqual(repos, ("K2Lab/moras-api", "K2Lab/sherpa"))
+
+    def test_owner_repo_item_accepts_nested_owner_shape(self):
+        self.assertEqual(
+            a2a_runner.repo_slug_from_repo_item({"owner": {"login": "K2Lab"}, "name": "sherpa"}),
+            "K2Lab/sherpa",
+        )
+
     def test_pr_tracking_records_head_changed_at_only_when_head_moves(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             store = self.make_store(tmpdir)
@@ -1314,6 +1335,7 @@ mid-human-review
 
     def test_discovery_poll_queues_assigned_issue_once(self):
         with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "project-core" / ".git").mkdir(parents=True)
             config = a2a_runner.WebhookConfig(
                 **{
                     **self.make_config(tmpdir).__dict__,
@@ -1461,6 +1483,42 @@ mid-human-review
             self.assertIsNotNone(snapshot)
             self.assertEqual(snapshot["title"], "Assigned issue")
             self.assertIn("tracking started", "\n".join(events))
+            self.assertNotIn("queued assigned issue triage", "\n".join(events))
+            self.assertEqual(bridge.jobs.qsize(), 0)
+
+    def test_discovery_tracks_remote_only_repo_but_skips_auto_analysis(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("K2Lab/sherpa",),
+                    "monitor_limit": 10,
+                    "monitor_pr_reviews": False,
+                }
+            )
+            issue = {
+                "index": 31,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "WIP refactor(lab): video knowledgebase",
+                "url": "https://git.k2lab.ai/K2Lab/sherpa/issues/31",
+                "body": "Please check.",
+                "assignees": [{"login": "Dev.User"}],
+                "labels": [],
+                "comments": [],
+            }
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+
+            with mock.patch.object(a2a_runner, "list_open_issues", return_value=[{"index": 31}]), \
+                mock.patch.object(a2a_runner, "fetch_issue", return_value=issue), \
+                mock.patch.object(a2a_runner, "list_open_prs", return_value=[]):
+                events = bridge.discovery_once()
+
+            snapshot = bridge.store.tracking_snapshot("K2Lab/sherpa", "issue", 31)
+            self.assertIsNotNone(snapshot)
+            self.assertEqual(snapshot["title"], "WIP refactor(lab): video knowledgebase")
+            self.assertIn("tracking started", "\n".join(events))
+            self.assertIn("repository is tracked remotely but is not cloned", "\n".join(events))
             self.assertNotIn("queued assigned issue triage", "\n".join(events))
             self.assertEqual(bridge.jobs.qsize(), 0)
 
@@ -2207,6 +2265,7 @@ mid-human-review
 
     def test_stale_issue_scan_only_queues_assigned_external_issues_without_pr(self):
         with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "project-core" / ".git").mkdir(parents=True)
             config = a2a_runner.WebhookConfig(
                 **{
                     **self.make_config(tmpdir).__dict__,
