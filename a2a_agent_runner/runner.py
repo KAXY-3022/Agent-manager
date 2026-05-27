@@ -139,8 +139,24 @@ TRANSIENT_JOB_ERROR_PATTERNS = (
     "tls handshake timeout",
     "i/o timeout",
 )
+RETRYABLE_RUNTIME_FAILURE_PATTERNS = TRANSIENT_JOB_ERROR_PATTERNS + (
+    "401 unauthorized",
+    "invalid token",
+    "429",
+    "rate limit",
+    "too many requests",
+    "500 internal server error",
+    "502",
+    "503",
+    "504",
+    "bad gateway",
+    "service unavailable",
+    "gateway timeout",
+    "failed to refresh available models",
+    "timeout waiting for child process",
+    "reconnecting",
+)
 TRANSIENT_JOB_RETRY_LIMIT = 3
-MANUAL_PR_REVIEW_RETRY_LIMIT = 1
 LOW_CONFIDENCE_PR_REVIEW_REASON = "request-changes review used incomplete or unverified diff evidence"
 PR_REVIEW_COMPLETE_COMMENTS = 0
 PR_REVIEW_COMPLETE_DIFF_CHARS = 0
@@ -150,6 +166,11 @@ ISSUE_JOB_KINDS = {"issue", "issue_stale_scan", "issue_auto_fix"}
 def is_transient_job_error(exc: BaseException) -> bool:
     text = str(exc).lower()
     return any(pattern in text for pattern in TRANSIENT_JOB_ERROR_PATTERNS)
+
+
+def is_retryable_runtime_failure_text(text: str) -> bool:
+    normalized = str(text or "").lower()
+    return any(pattern in normalized for pattern in RETRYABLE_RUNTIME_FAILURE_PATTERNS)
 
 
 class ReusableThreadingHTTPServer(http.server.ThreadingHTTPServer):
@@ -2268,6 +2289,26 @@ def pr_review_current_head_local_draft_can_rerun(repo: str, number: int, head_sh
     )
 
 
+def retryable_failure_reason_for_job(job: WebhookJob, exc: BaseException) -> str:
+    if is_transient_job_error(exc):
+        return "transient failure"
+    if job.kind == "pr_review":
+        task_dir, record = latest_pr_review_task_record(f"{job.owner}/{job.repo}", job.number, job.head_sha)
+        if record.get("runtime_status") == "failed":
+            review_text = ""
+            if task_dir:
+                review_path = task_dir / "review.md"
+                if review_path.exists():
+                    try:
+                        review_text = review_path.read_text(encoding="utf-8", errors="replace")
+                    except OSError:
+                        review_text = ""
+            combined = f"{exc}\n{record.get('runtime_error') or ''}\n{review_text}"
+            if is_retryable_runtime_failure_text(combined):
+                return "retryable runtime failure"
+    return ""
+
+
 def latest_pr_review_task_record(repo: str, number: int, head_sha: str = "") -> tuple[Path | None, dict[str, Any]]:
     for task_dir, record in iter_records():
         target = record.get("target_index") or record.get("pull")
@@ -2288,17 +2329,6 @@ def job_retry_count(job_status: dict[str, Any]) -> int:
 
 def job_retry_available(job_status: dict[str, Any], retry_limit: int) -> bool:
     return job_retry_count(job_status) < retry_limit
-
-
-def manual_retry_limit_reached_action(head_sha: str, status: str, job_status: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "available": False,
-        "reason": "manual retry limit reached",
-        "head_sha": head_sha,
-        "job_status": status,
-        "retry_count": job_retry_count(job_status),
-        "retry_limit": MANUAL_PR_REVIEW_RETRY_LIMIT,
-    }
 
 
 def pr_review_manual_action_for_item(
@@ -2323,8 +2353,6 @@ def pr_review_manual_action_for_item(
             "job_status": status,
         }
     if pr_review_current_head_low_confidence_needs_retry(repo, number, head_sha):
-        if not job_retry_available(job_status, MANUAL_PR_REVIEW_RETRY_LIMIT):
-            return manual_retry_limit_reached_action(head_sha, status, job_status)
         return {
             "available": True,
             "reason": "low-confidence review can be retried",
@@ -2333,8 +2361,6 @@ def pr_review_manual_action_for_item(
             "retry": True,
         }
     if pr_review_current_head_local_draft_can_rerun(repo, number, head_sha):
-        if not job_retry_available(job_status, MANUAL_PR_REVIEW_RETRY_LIMIT):
-            return manual_retry_limit_reached_action(head_sha, status, job_status)
         return {
             "available": True,
             "reason": "local review draft can be rerun",
@@ -2343,14 +2369,14 @@ def pr_review_manual_action_for_item(
             "retry": True,
         }
     if status == "failed":
-        if not job_retry_available(job_status, MANUAL_PR_REVIEW_RETRY_LIMIT):
-            return manual_retry_limit_reached_action(head_sha, status, job_status)
         return {
             "available": True,
             "reason": "failed review can be retried",
             "head_sha": head_sha,
             "dedupe_key": f"{repo}#{number}@{head_sha}",
             "retry": True,
+            "retry_count": job_retry_count(job_status),
+            "retry_limit": TRANSIENT_JOB_RETRY_LIMIT,
         }
     if not (relationships.get("review_requested_from_me") or relationships.get("assigned_to_me")):
         return {"available": False, "reason": "review is not requested from you"}
@@ -4494,7 +4520,7 @@ class WebhookStateStore:
                 (status, summary, int(time.time()), delivery_id),
             )
 
-    def reserve_or_retry_job(self, job: WebhookJob, retry_limit: int) -> str:
+    def reserve_or_retry_job(self, job: WebhookJob, retry_limit: int | None, *, count_retry: bool = True) -> str:
         now = int(time.time())
         try:
             with self.connect() as conn:
@@ -4524,13 +4550,25 @@ class WebhookStateStore:
             if retry_low_confidence or retry_local_draft:
                 retry_statuses.extend(["done", "needs_human_review"])
             status_placeholders = ",".join("?" for _ in retry_statuses)
+            retry_increment = 1 if count_retry else 0
+            limit_clause = "" if retry_limit is None else " AND retry_count < ?"
+            params: tuple[Any, ...] = (
+                job.delivery_id,
+                "queued",
+                retry_increment,
+                now,
+                job.dedupe_key,
+                *retry_statuses,
+            )
+            if retry_limit is not None:
+                params = (*params, retry_limit)
             cursor = conn.execute(
                 f"""
                 UPDATE jobs
-                SET delivery_id = ?, status = ?, retry_count = retry_count + 1, updated_at = ?
-                WHERE dedupe_key = ? AND status IN ({status_placeholders}) AND retry_count < ?
+                SET delivery_id = ?, status = ?, retry_count = retry_count + ?, updated_at = ?
+                WHERE dedupe_key = ? AND status IN ({status_placeholders}){limit_clause}
                 """,
-                (job.delivery_id, "queued", now, job.dedupe_key, *retry_statuses, retry_limit),
+                params,
             )
         return "retry" if cursor.rowcount else "duplicate"
 
@@ -5384,12 +5422,13 @@ class WebhookBridge:
                 if self.store.job_status_for_key(job.dedupe_key) == "superseded":
                     logging.info("stopped superseded job kind=%s key=%s reason=%s", job.kind, job.dedupe_key, exc)
                     return
-                if is_transient_job_error(exc) and self.store.retry_job_after_transient_error(
+                retry_reason = retryable_failure_reason_for_job(job, exc)
+                if retry_reason and self.store.retry_job_after_transient_error(
                     job.dedupe_key,
                     TRANSIENT_JOB_RETRY_LIMIT,
                 ):
-                    summary = f"transient failure; queued retry: {str(exc)[:420]}"
-                    logging.warning("retrying transient job kind=%s key=%s error=%s", job.kind, job.dedupe_key, exc)
+                    summary = f"{retry_reason}; queued auto retry: {str(exc)[:420]}"
+                    logging.warning("retrying job kind=%s key=%s reason=%s error=%s", job.kind, job.dedupe_key, retry_reason, exc)
                     self.store.update_delivery(job.delivery_id, "queued", summary)
                     self.jobs.put(job)
                     return
@@ -6316,9 +6355,10 @@ class WebhookBridge:
 
     def _queue_job(self, job: WebhookJob, summary: str) -> WebhookResponse:
         delivery_inserted = self.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "queued", summary)
-        retry_limit = MANUAL_PR_REVIEW_RETRY_LIMIT if job.event_type in {"pr_review_manual", "issue_auto_fix_manual"} else self.config.retry_failed_limit
+        manual_retry = job.event_type in {"pr_review_manual", "issue_auto_fix_manual"}
+        retry_limit = None if manual_retry else self.config.retry_failed_limit
         if not delivery_inserted:
-            reservation = self.store.reserve_or_retry_job(job, retry_limit)
+            reservation = self.store.reserve_or_retry_job(job, retry_limit, count_retry=not manual_retry)
             if reservation == "retry":
                 self.store.update_delivery(job.delivery_id, "queued", summary)
                 logging.info("retrying failed job key=%s after duplicate delivery", job.dedupe_key)
@@ -6396,7 +6436,7 @@ class WebhookBridge:
                     "active_key": active_job.get("dedupe_key"),
                 },
             )
-        reservation = self.store.reserve_or_retry_job(job, retry_limit)
+        reservation = self.store.reserve_or_retry_job(job, retry_limit, count_retry=not manual_retry)
         if reservation == "duplicate":
             self.store.update_delivery(job.delivery_id, "ignored", f"duplicate job {job.dedupe_key}")
             return WebhookResponse(200, {"status": "ignored", "reason": "duplicate job", "key": job.dedupe_key})

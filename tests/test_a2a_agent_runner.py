@@ -2005,14 +2005,15 @@ mid-human-review
             first = bridge._queue_job(job, "queued manual review")
             bridge.store.update_job(job.dedupe_key, "failed")
             retry = bridge._queue_job(job, "retry manual review")
+            bridge.store.update_job(job.dedupe_key, "failed")
             second_retry = bridge._queue_job(job, "retry manual review again")
 
             self.assertEqual(first.status_code, 202)
             self.assertEqual(retry.status_code, 202)
             self.assertTrue(retry.body.get("retry"))
-            self.assertEqual(second_retry.status_code, 200)
-            self.assertEqual(second_retry.body["status"], "duplicate")
-            self.assertEqual(bridge.store.job_dict_for_key(job.dedupe_key)["retry_count"], 1)
+            self.assertEqual(second_retry.status_code, 202)
+            self.assertTrue(second_retry.body.get("retry"))
+            self.assertEqual(bridge.store.job_dict_for_key(job.dedupe_key)["retry_count"], 0)
 
     def test_manual_pr_review_action_allows_failed_retry_after_review_request_clears(self):
         action = a2a_runner.pr_review_manual_action_for_item(
@@ -2170,7 +2171,7 @@ mid-human-review
             self.assertEqual(items[0]["pr_review_action"]["reason"], "review requested")
             self.assertEqual(items[0]["pr_review_action"]["head_sha"], "new-head")
 
-    def test_manual_pr_review_action_hides_when_retry_limit_reached(self):
+    def test_manual_pr_review_action_allows_failed_retry_after_auto_retry_limit(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
             job = a2a_runner.WebhookJob(
@@ -2218,12 +2219,13 @@ mid-human-review
                 "open",
             )
 
-            self.assertFalse(items[0]["pr_review_action"]["available"])
-            self.assertEqual(items[0]["pr_review_action"]["reason"], "manual retry limit reached")
-            self.assertEqual(items[0]["pr_review_action"]["retry_count"], 1)
-            self.assertEqual(items[0]["pr_review_action"]["retry_limit"], a2a_runner.MANUAL_PR_REVIEW_RETRY_LIMIT)
+            self.assertTrue(items[0]["pr_review_action"]["available"])
+            self.assertTrue(items[0]["pr_review_action"]["retry"])
+            self.assertEqual(items[0]["pr_review_action"]["reason"], "failed review can be retried")
+            self.assertEqual(items[0]["pr_review_action"]["retry_count"], 0)
+            self.assertEqual(items[0]["pr_review_action"]["retry_limit"], a2a_runner.TRANSIENT_JOB_RETRY_LIMIT)
             self.assertEqual(items[0]["job_status"]["status"], "failed")
-            self.assertEqual(items[0]["job_status"]["retry_count"], 1)
+            self.assertEqual(items[0]["job_status"]["retry_count"], 0)
 
     def test_active_pr_poll_tracks_low_confidence_retry_without_queueing_job(self):
         original_iter_records = a2a_runner.iter_records
@@ -3631,17 +3633,17 @@ Old reviewer comment that must not become a draft.
         self.assertIn("bindQueueReviewButtons", ui)
         self.assertLess(ui.index('$("kanban-board").innerHTML'), ui.index("bindQueueReviewButtons();"))
 
-    def test_attention_panel_explains_pr_review_retry_limit_failures(self):
+    def test_attention_panel_keeps_failed_run_and_rerun_actions_visible(self):
         ui = a2a_runner.load_ui_html()
         inspector_start = ui.index("const attentionInspector =")
         inspector_end = ui.index("function fitKanbanToWindow", inspector_start)
         inspector_logic = ui[inspector_start:inspector_end]
 
         self.assertIn("reviewActionRetryText", inspector_logic)
-        self.assertIn("manual retry limit reached", inspector_logic)
-        self.assertIn("Retry limit reached", inspector_logic)
+        self.assertIn("Rerun job", inspector_logic)
         self.assertIn("review.failed_task_dir", inspector_logic)
         self.assertIn("Open failed run", inspector_logic)
+        self.assertIn("if (failedReviewRef)", inspector_logic)
         self.assertIn("job.summary", inspector_logic)
         self.assertIn("AI review", inspector_logic)
         self.assertIn("Failure", inspector_logic)
@@ -4149,6 +4151,62 @@ Old reviewer comment that must not become a draft.
         self.assertEqual([pending_job.dedupe_key for pending_job in pending], [job.dedupe_key])
         self.assertEqual(deliveries[0]["status"], "queued")
         self.assertIn("transient failure", deliveries[0]["summary"])
+
+    def test_retryable_pr_runtime_failure_requeues_instead_of_failing(self):
+        original_iter_records = a2a_runner.iter_records
+        with tempfile.TemporaryDirectory() as tmpdir:
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="runtime-1",
+                event_type="pr_review_active",
+                dedupe_key="ExampleOrg/project-core#460@abc123",
+                owner="ExampleOrg",
+                repo="project-core",
+                number=460,
+                title="",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/460",
+                head_sha="abc123",
+            )
+            task_dir = Path(tmpdir) / "failed-runtime"
+            task_dir.mkdir()
+            a2a_runner.write_text(
+                task_dir / "review.md",
+                "# Agent Review\n\n## Failure Output\n\n401 Unauthorized: Invalid token\n",
+            )
+            record = {
+                "created_at": "2026-05-27T02:00:00+00:00",
+                "repo": "ExampleOrg/project-core",
+                "item_type": "pull_request",
+                "target_index": "460",
+                "head_sha": "abc123",
+                "runtime_status": "failed",
+                "runtime_used": "codex",
+                "posted": False,
+            }
+            a2a_runner.iter_records = lambda: [(task_dir, record)]
+            bridge.store.record_delivery(job.delivery_id, job.event_type, job.dedupe_key, "queued", "queued")
+            bridge.store.reserve_or_retry_job(job, retry_limit=0)
+            original_run_job = bridge._run_job
+            bridge._run_job = lambda _job, *, cancel_event=None: (_ for _ in ()).throw(
+                a2a_runner.DemoError("PR review job failed with exit code 1")
+            )
+            try:
+                with self.assertLogs(level="WARNING"):
+                    bridge.process_job(job)
+            finally:
+                bridge._run_job = original_run_job
+                a2a_runner.iter_records = original_iter_records
+
+            self.assertEqual(bridge.store.job_status_for_key(job.dedupe_key), "queued")
+            pending = bridge.store.pending_jobs()
+            deliveries = bridge.store.recent_deliveries(limit=1)
+            job_record = bridge.store.job_dict_for_key(job.dedupe_key)
+
+        self.assertEqual([pending_job.dedupe_key for pending_job in pending], [job.dedupe_key])
+        self.assertEqual(job_record["retry_count"], 1)
+        self.assertEqual(deliveries[0]["status"], "queued")
+        self.assertIn("retryable runtime failure", deliveries[0]["summary"])
 
     def test_non_transient_job_error_still_fails(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -3443,11 +3443,10 @@
       const canQueueReview = item.item_type === "pull_request" && reviewAction.available;
       const reviewActionReason = String(reviewAction.reason || "");
       const reviewActionBlocked = item.item_type === "pull_request" && !canQueueReview && (
-        reviewActionReason === "manual retry limit reached" ||
         reviewActionReason === "review needs human attention" ||
         reviewActionReason.startsWith("review job already")
       );
-      const reviewActionBlockedLabel = reviewActionReason === "manual retry limit reached" ? "Retry limit reached" : reviewActionReason;
+      const reviewActionBlockedLabel = reviewActionReason;
       const reviewActionRetryText = reviewAction.retry_limit === undefined || reviewAction.retry_limit === null
         ? ""
         : `${reviewAction.retry_count === undefined || reviewAction.retry_count === null ? 0 : reviewAction.retry_count} / ${reviewAction.retry_limit}`;
@@ -3500,7 +3499,7 @@
         const queueClass = hasLocalDraft ? "open-review-btn open-review-secondary queue-review-btn" : "open-review-btn queue-review-btn";
         actions.push(`<button class="${queueClass}" type="button" data-queue-pr-review="${esc(item.repo)}#${esc(item.number)}">${esc(reviewActionLabel)}</button>`);
       }
-      if (failedReviewRef && !hasLocalDraft) {
+      if (failedReviewRef) {
         const failureClass = actions.length ? "open-review-btn open-review-secondary" : "open-review-btn";
         actions.push(`<button class="${failureClass}" type="button" data-open-draft="${esc(failedReviewRef)}">Open failed run</button>`);
       }
