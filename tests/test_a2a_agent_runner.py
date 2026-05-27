@@ -4342,6 +4342,36 @@ Old reviewer comment that must not become a draft.
                 ],
             )
 
+    def test_codex_model_args_include_env_key_for_custom_provider_api_key(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "A2A_CODEX_MODEL_PROVIDER": "custom",
+                "A2A_CODEX_MODEL_PROVIDER_BASE_URL": "https://console.viiideo.com/newapi/v1",
+                "A2A_CODEX_OPENAI_API_KEY": "secret-value",
+            },
+            clear=True,
+        ):
+            self.assertIn(
+                'model_providers.custom.env_key="OPENAI_API_KEY"',
+                a2a_runner.codex_model_args("gpt-5.5", "high"),
+            )
+
+    def test_codex_model_args_allow_custom_provider_env_key(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "A2A_CODEX_MODEL_PROVIDER": "custom",
+                "A2A_CODEX_MODEL_PROVIDER_BASE_URL": "https://console.viiideo.com/newapi/v1",
+                "A2A_CODEX_MODEL_PROVIDER_ENV_KEY": "CUSTOM_PROVIDER_TOKEN",
+            },
+            clear=True,
+        ):
+            self.assertIn(
+                'model_providers.custom.env_key="CUSTOM_PROVIDER_TOKEN"',
+                a2a_runner.codex_model_args("gpt-5.5", "high"),
+            )
+
     def test_codex_model_args_include_cc_switch_runtime_config(self):
         with mock.patch.dict(
             os.environ,

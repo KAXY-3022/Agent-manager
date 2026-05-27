@@ -1200,7 +1200,10 @@ def codex_provider_config_args(provider: str) -> list[str]:
         raise DemoError(f"A2A_CODEX_MODEL_PROVIDER must be a simple provider key when provider base URL is configured: {provider!r}")
     wire_api = os.environ.get("A2A_CODEX_MODEL_PROVIDER_WIRE_API", "responses").strip() or "responses"
     requires_auth = parse_bool(os.environ.get("A2A_CODEX_MODEL_PROVIDER_REQUIRES_OPENAI_AUTH", "true"))
-    return [
+    env_key = os.environ.get("A2A_CODEX_MODEL_PROVIDER_ENV_KEY", "").strip()
+    if not env_key and os.environ.get("A2A_CODEX_OPENAI_API_KEY", "").strip():
+        env_key = "OPENAI_API_KEY"
+    args = [
         "-c",
         f'model_providers.{provider}.name="{codex_config_value(provider)}"',
         "-c",
@@ -1210,6 +1213,9 @@ def codex_provider_config_args(provider: str) -> list[str]:
         "-c",
         f"model_providers.{provider}.requires_openai_auth={'true' if requires_auth else 'false'}",
     ]
+    if env_key:
+        args.extend(["-c", f'model_providers.{provider}.env_key="{codex_config_value(env_key)}"'])
+    return args
 
 
 def codex_runtime_env() -> dict[str, str] | None:
@@ -3157,6 +3163,7 @@ def ensure_webhook_env(path: Path) -> bool:
             "A2A_CODEX_MODEL_PROVIDER_BASE_URL=",
             "A2A_CODEX_MODEL_PROVIDER_WIRE_API=responses",
             "A2A_CODEX_MODEL_PROVIDER_REQUIRES_OPENAI_AUTH=true",
+            "A2A_CODEX_MODEL_PROVIDER_ENV_KEY=",
             "A2A_CODEX_OPENAI_API_KEY=",
             "A2A_CODEX_SERVICE_TIER=",
             "A2A_CODEX_DISABLE_RESPONSE_STORAGE=",
