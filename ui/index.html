@@ -3441,13 +3441,29 @@
         : "No external feedback detail";
       const reviewAction = item.pr_review_action || {};
       const canQueueReview = item.item_type === "pull_request" && reviewAction.available;
+      const reviewActionReason = String(reviewAction.reason || "");
+      const reviewActionBlocked = item.item_type === "pull_request" && !canQueueReview && (
+        reviewActionReason === "manual retry limit reached" ||
+        reviewActionReason === "review needs human attention" ||
+        reviewActionReason.startsWith("review job already")
+      );
+      const reviewActionBlockedLabel = reviewActionReason === "manual retry limit reached" ? "Retry limit reached" : reviewActionReason;
+      const reviewActionRetryText = reviewAction.retry_limit === undefined || reviewAction.retry_limit === null
+        ? ""
+        : `${reviewAction.retry_count === undefined || reviewAction.retry_count === null ? 0 : reviewAction.retry_count} / ${reviewAction.retry_limit}`;
       const draftRef = item.item_type === "pull_request" && review.state === "local" && !review.posted
         ? (review.task_dir || review.task_id || "")
         : "";
       const hasLocalDraft = Boolean(draftRef);
+      const failedReviewRef = item.item_type === "pull_request" && review.current_head_failed
+        ? (review.failed_task_dir || review.failed_task_id || review.latest_task_dir || review.latest_task_id || "")
+        : "";
+      const failedReviewLabel = failedReviewRef ? (String(failedReviewRef).split(/[\\/]/).filter(Boolean).pop() || failedReviewRef) : "";
       const issueAnalysisRef = item.item_type === "issue" && review.task_dir ? (review.task_dir || review.task_id || "") : "";
       const canTakeIssueHandoff = item.item_type === "issue" && review.human_attention && issueHumanHandoffTakeoverAllowed(review);
       const canApproveIssueAutoFix = item.item_type === "issue" && issueAnalysisRef && issueAutoFixApprovalAllowed(review);
+      const job = item.job_status || {};
+      const jobSummary = String(job.summary || "");
       const reviewActionLabel = reviewAction.retry ? "Rerun job" : "Start AI review";
       const actionText = issueAnalysisRef
         ? (canApproveIssueAutoFix ? "Approve the saved easy assessment to start an auto-fix job." : canTakeIssueHandoff ? "Take over to clear the handoff signal, or open the saved assessment first." : "Open the saved assessment package before deciding the next step.")
@@ -3455,6 +3471,8 @@
         ? "Review the local draft, post it, or rerun the agent if the result is weak."
         : canQueueReview
         ? (reviewAction.retry ? "Rerun the AI review job when you are ready." : "Start an AI review when you are ready.")
+        : reviewActionBlocked
+        ? `${reviewActionBlockedLabel}${reviewActionRetryText ? ` (${reviewActionRetryText})` : ""}. Open the failed run or PR for details.`
         : canMarkPrFeedbackHandled
         ? "Mark this feedback as in progress so the dashboard stays quiet until new external feedback arrives."
         : item.item_type === "pull_request" && (item.relationships || {}).created_by_me
@@ -3482,6 +3500,10 @@
         const queueClass = hasLocalDraft ? "open-review-btn open-review-secondary queue-review-btn" : "open-review-btn queue-review-btn";
         actions.push(`<button class="${queueClass}" type="button" data-queue-pr-review="${esc(item.repo)}#${esc(item.number)}">${esc(reviewActionLabel)}</button>`);
       }
+      if (failedReviewRef && !hasLocalDraft) {
+        const failureClass = actions.length ? "open-review-btn open-review-secondary" : "open-review-btn";
+        actions.push(`<button class="${failureClass}" type="button" data-open-draft="${esc(failedReviewRef)}">Open failed run</button>`);
+      }
       if (canMarkPrFeedbackHandled) {
         const ackClass = actions.length ? "open-review-btn open-review-secondary pr-feedback-handled-btn" : "open-review-btn pr-feedback-handled-btn";
         actions.push(`<button class="${ackClass}" type="button" data-ack-pr-feedback="${esc(itemKey(item))}" data-feedback-key="${esc(latestFeedbackKey)}">I'm on it</button>`);
@@ -3500,6 +3522,9 @@
             <div class="detail-row"><span>State</span><strong>${esc(stateLabel)}</strong></div>
             <div class="detail-row"><span>Relation</span><strong>${esc(cardRelationLabel(item))}</strong></div>
             <div class="detail-row"><span>Latest signal</span><strong>${latestText}</strong></div>
+            ${reviewActionBlocked ? `<div class="detail-row"><span>AI review</span><strong title="${esc(reviewActionReason)}">${esc(reviewActionBlockedLabel)}${reviewActionRetryText ? ` · ${esc(reviewActionRetryText)} retries` : ""}</strong></div>` : ""}
+            ${jobSummary ? `<div class="detail-row"><span>Failure</span><strong title="${esc(jobSummary)}">${esc(jobSummary)}</strong></div>` : ""}
+            ${failedReviewLabel ? `<div class="detail-row"><span>Failed run</span><strong title="${esc(failedReviewRef)}">${esc(failedReviewLabel)}</strong></div>` : ""}
             <div class="detail-row"><span>Next action</span><strong>${esc(actionText)}</strong></div>
           </div>`;
       return `<div class="inspector-head">

@@ -2261,12 +2261,26 @@ def latest_pr_review_task_record(repo: str, number: int, head_sha: str = "") -> 
     return None, {}
 
 
-def job_retry_available(job_status: dict[str, Any], retry_limit: int) -> bool:
+def job_retry_count(job_status: dict[str, Any]) -> int:
     try:
-        retry_count = int(job_status.get("retry_count") or 0)
+        return int(job_status.get("retry_count") or 0)
     except (TypeError, ValueError):
-        retry_count = 0
-    return retry_count < retry_limit
+        return 0
+
+
+def job_retry_available(job_status: dict[str, Any], retry_limit: int) -> bool:
+    return job_retry_count(job_status) < retry_limit
+
+
+def manual_retry_limit_reached_action(head_sha: str, status: str, job_status: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "available": False,
+        "reason": "manual retry limit reached",
+        "head_sha": head_sha,
+        "job_status": status,
+        "retry_count": job_retry_count(job_status),
+        "retry_limit": MANUAL_PR_REVIEW_RETRY_LIMIT,
+    }
 
 
 def pr_review_manual_action_for_item(
@@ -2292,12 +2306,7 @@ def pr_review_manual_action_for_item(
         }
     if pr_review_current_head_low_confidence_needs_retry(repo, number, head_sha):
         if not job_retry_available(job_status, MANUAL_PR_REVIEW_RETRY_LIMIT):
-            return {
-                "available": False,
-                "reason": "manual retry limit reached",
-                "head_sha": head_sha,
-                "job_status": status,
-            }
+            return manual_retry_limit_reached_action(head_sha, status, job_status)
         return {
             "available": True,
             "reason": "low-confidence review can be retried",
@@ -2307,12 +2316,7 @@ def pr_review_manual_action_for_item(
         }
     if pr_review_current_head_local_draft_can_rerun(repo, number, head_sha):
         if not job_retry_available(job_status, MANUAL_PR_REVIEW_RETRY_LIMIT):
-            return {
-                "available": False,
-                "reason": "manual retry limit reached",
-                "head_sha": head_sha,
-                "job_status": status,
-            }
+            return manual_retry_limit_reached_action(head_sha, status, job_status)
         return {
             "available": True,
             "reason": "local review draft can be rerun",
@@ -2322,12 +2326,7 @@ def pr_review_manual_action_for_item(
         }
     if status == "failed":
         if not job_retry_available(job_status, MANUAL_PR_REVIEW_RETRY_LIMIT):
-            return {
-                "available": False,
-                "reason": "manual retry limit reached",
-                "head_sha": head_sha,
-                "job_status": status,
-            }
+            return manual_retry_limit_reached_action(head_sha, status, job_status)
         return {
             "available": True,
             "reason": "failed review can be retried",
@@ -4580,10 +4579,12 @@ class WebhookStateStore:
         with self.connect() as conn:
             row = conn.execute(
                 """
-                SELECT datetime(created_at, 'unixepoch', 'localtime'), datetime(updated_at, 'unixepoch', 'localtime'),
-                       dedupe_key, delivery_id, kind, status, source_url, retry_count
+                SELECT datetime(jobs.created_at, 'unixepoch', 'localtime'), datetime(jobs.updated_at, 'unixepoch', 'localtime'),
+                       jobs.dedupe_key, jobs.delivery_id, kind, jobs.status, source_url, retry_count,
+                       COALESCE(deliveries.summary, '')
                 FROM jobs
-                WHERE dedupe_key = ?
+                LEFT JOIN deliveries ON deliveries.delivery_id = jobs.delivery_id
+                WHERE jobs.dedupe_key = ?
                 """,
                 (key,),
             ).fetchone()
@@ -4600,6 +4601,7 @@ class WebhookStateStore:
             "status": status,
             "source_url": row[6],
             "retry_count": row[7],
+            "summary": row[8],
             "active": status in {"queued", "running"},
             "recent": status in {"queued", "running", "failed", "needs_human_review", "stale"},
         }
@@ -4975,11 +4977,13 @@ class WebhookStateStore:
         with self.connect() as conn:
             rows = conn.execute(
                 """
-                SELECT datetime(created_at, 'unixepoch', 'localtime'), datetime(updated_at, 'unixepoch', 'localtime'),
-                       dedupe_key, kind, status, source_url, retry_count
+                SELECT datetime(jobs.created_at, 'unixepoch', 'localtime'), datetime(jobs.updated_at, 'unixepoch', 'localtime'),
+                       jobs.dedupe_key, kind, jobs.status, source_url, retry_count,
+                       COALESCE(deliveries.summary, '')
                 FROM jobs
-                WHERE status IN ('queued', 'running', 'failed', 'done', 'needs_human_review', 'stale')
-                ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END, updated_at DESC
+                LEFT JOIN deliveries ON deliveries.delivery_id = jobs.delivery_id
+                WHERE jobs.status IN ('queued', 'running', 'failed', 'done', 'needs_human_review', 'stale')
+                ORDER BY CASE jobs.status WHEN 'running' THEN 0 ELSE 1 END, jobs.updated_at DESC
                 """
             ).fetchall()
         jobs: dict[str, dict[str, Any]] = {}
@@ -5001,6 +5005,7 @@ class WebhookStateStore:
                 "status": status,
                 "source_url": row[5],
                 "retry_count": row[6],
+                "summary": row[7],
                 "active": status in {"queued", "running"},
                 "recent": True,
             }

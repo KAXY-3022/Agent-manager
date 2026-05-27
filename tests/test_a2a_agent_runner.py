@@ -2220,6 +2220,8 @@ mid-human-review
 
             self.assertFalse(items[0]["pr_review_action"]["available"])
             self.assertEqual(items[0]["pr_review_action"]["reason"], "manual retry limit reached")
+            self.assertEqual(items[0]["pr_review_action"]["retry_count"], 1)
+            self.assertEqual(items[0]["pr_review_action"]["retry_limit"], a2a_runner.MANUAL_PR_REVIEW_RETRY_LIMIT)
             self.assertEqual(items[0]["job_status"]["status"], "failed")
             self.assertEqual(items[0]["job_status"]["retry_count"], 1)
 
@@ -3571,6 +3573,21 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("/api/pr-review/queue", ui)
         self.assertIn("bindQueueReviewButtons", ui)
         self.assertLess(ui.index('$("kanban-board").innerHTML'), ui.index("bindQueueReviewButtons();"))
+
+    def test_attention_panel_explains_pr_review_retry_limit_failures(self):
+        ui = a2a_runner.load_ui_html()
+        inspector_start = ui.index("const attentionInspector =")
+        inspector_end = ui.index("function fitKanbanToWindow", inspector_start)
+        inspector_logic = ui[inspector_start:inspector_end]
+
+        self.assertIn("reviewActionRetryText", inspector_logic)
+        self.assertIn("manual retry limit reached", inspector_logic)
+        self.assertIn("Retry limit reached", inspector_logic)
+        self.assertIn("review.failed_task_dir", inspector_logic)
+        self.assertIn("Open failed run", inspector_logic)
+        self.assertIn("job.summary", inspector_logic)
+        self.assertIn("AI review", inspector_logic)
+        self.assertIn("Failure", inspector_logic)
 
     def test_dashboard_has_review_drafts_page(self):
         ui = a2a_runner.load_ui_html()
