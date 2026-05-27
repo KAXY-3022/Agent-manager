@@ -4284,6 +4284,34 @@ Old reviewer comment that must not become a draft.
                 ],
             )
 
+    def test_codex_model_args_include_cc_switch_runtime_config(self):
+        with mock.patch.dict(
+            os.environ,
+            {
+                "A2A_CODEX_SERVICE_TIER": "priority",
+                "A2A_CODEX_DISABLE_RESPONSE_STORAGE": "true",
+                "A2A_CODEX_PERSONALITY": "pragmatic",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                a2a_runner.codex_model_args("gpt-5.5", "xhigh", "custom"),
+                [
+                    "--model",
+                    "gpt-5.5",
+                    "-c",
+                    'model_provider="custom"',
+                    "-c",
+                    'model_reasoning_effort="xhigh"',
+                    "-c",
+                    'service_tier="priority"',
+                    "-c",
+                    "disable_response_storage=true",
+                    "-c",
+                    'personality="pragmatic"',
+                ],
+            )
+
     def test_codex_runtime_env_maps_private_key_to_openai_api_key(self):
         with mock.patch.dict(os.environ, {"A2A_CODEX_OPENAI_API_KEY": "secret-value"}, clear=True):
             env = a2a_runner.codex_runtime_env()

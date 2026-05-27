@@ -1201,6 +1201,20 @@ def codex_runtime_env() -> dict[str, str] | None:
     return env
 
 
+def codex_extra_config_args() -> list[str]:
+    args: list[str] = []
+    service_tier = os.environ.get("A2A_CODEX_SERVICE_TIER", "").strip()
+    if service_tier:
+        args.extend(["-c", f'service_tier="{codex_config_value(service_tier)}"'])
+    disable_storage = os.environ.get("A2A_CODEX_DISABLE_RESPONSE_STORAGE", "").strip()
+    if disable_storage:
+        args.extend(["-c", f"disable_response_storage={'true' if parse_bool(disable_storage) else 'false'}"])
+    personality = os.environ.get("A2A_CODEX_PERSONALITY", "").strip()
+    if personality:
+        args.extend(["-c", f'personality="{codex_config_value(personality)}"'])
+    return args
+
+
 def codex_model_args(model: str = "", reasoning_effort: str = "", model_provider: str = "") -> list[str]:
     args: list[str] = []
     if model:
@@ -1214,6 +1228,7 @@ def codex_model_args(model: str = "", reasoning_effort: str = "", model_provider
     effort = normalize_reasoning_effort(reasoning_effort)
     if effort:
         args.extend(["-c", f'model_reasoning_effort="{effort}"'])
+    args.extend(codex_extra_config_args())
     return args
 
 
@@ -3117,6 +3132,9 @@ def ensure_webhook_env(path: Path) -> bool:
             "A2A_CODEX_MODEL_PROVIDER_WIRE_API=responses",
             "A2A_CODEX_MODEL_PROVIDER_REQUIRES_OPENAI_AUTH=true",
             "A2A_CODEX_OPENAI_API_KEY=",
+            "A2A_CODEX_SERVICE_TIER=",
+            "A2A_CODEX_DISABLE_RESPONSE_STORAGE=",
+            "A2A_CODEX_PERSONALITY=",
             "A2A_CODEX_ISSUE_MODEL=gpt-5.5",
             "A2A_CODEX_ISSUE_REASONING_EFFORT=xhigh",
             "A2A_CODEX_PR_REVIEW_MODEL=gpt-5.5",
@@ -7037,6 +7055,9 @@ def config_summary(config: WebhookConfig) -> dict[str, Any]:
         "issue_model": config.issue_model,
         "codex_model_provider": os.environ.get("A2A_CODEX_MODEL_PROVIDER", ""),
         "codex_model_provider_base_url": os.environ.get("A2A_CODEX_MODEL_PROVIDER_BASE_URL", ""),
+        "codex_service_tier": os.environ.get("A2A_CODEX_SERVICE_TIER", ""),
+        "codex_disable_response_storage": parse_bool(os.environ.get("A2A_CODEX_DISABLE_RESPONSE_STORAGE", "")),
+        "codex_personality": os.environ.get("A2A_CODEX_PERSONALITY", ""),
         "issue_reasoning_effort": config.issue_reasoning_effort,
         "pr_review_model": config.pr_review_model,
         "pr_review_reasoning_effort": config.pr_review_reasoning_effort,
