@@ -5547,7 +5547,7 @@ class WebhookBridge:
             self._stop.wait(self.config.monitor_poll_seconds)
 
     def monitor_once(self, *, queue_actions: bool = True) -> list[str]:
-        return self.discovery_once(queue_actions=queue_actions) + self.active_pr_once()
+        return self.discovery_once(queue_actions=queue_actions) + self.active_pr_once(queue_actions=queue_actions)
 
     def discovery_once(self, *, queue_actions: bool = True) -> list[str]:
         events: list[str] = []
@@ -5555,10 +5555,10 @@ class WebhookBridge:
             events.extend(self._discovery_repo(repo_slug_value, queue_actions=queue_actions))
         return events
 
-    def active_pr_once(self) -> list[str]:
+    def active_pr_once(self, *, queue_actions: bool = True) -> list[str]:
         events: list[str] = []
         for repo_slug_value in self.config.monitor_repos:
-            events.extend(self._active_pr_repo(repo_slug_value))
+            events.extend(self._active_pr_repo(repo_slug_value, queue_actions=queue_actions))
         return events
 
     def stale_issues_once(self) -> list[str]:
@@ -5676,7 +5676,23 @@ class WebhookBridge:
                     snapshot,
                     expected_usernames,
                 ) and not current_relationships.get("created_by_me"):
-                    events.append(f"{repo_slug_value} PR#{number}: review requested")
+                    if queue_actions:
+                        response = self._queue_automatic_pr_review_from_snapshot(
+                            repo_slug_value,
+                            number,
+                            pr_data,
+                            snapshot,
+                            current_relationships,
+                            event_type="pr_review_discovery",
+                            delivery_prefix="discovery",
+                        )
+                        if response.status_code == 202:
+                            events.append(f"{repo_slug_value} PR#{number}: review requested; queued automatic PR review")
+                        else:
+                            reason = response.body.get("reason") or response.body.get("status") or "not available"
+                            events.append(f"{repo_slug_value} PR#{number}: review requested; skipped automatic PR review: {reason}")
+                    else:
+                        events.append(f"{repo_slug_value} PR#{number}: review requested")
             except Exception as exc:
                 logging.warning("discovery PR fetch failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
         events.extend(self._reconcile_tracked_prs(repo_slug_value, open_pr_numbers))
@@ -5771,7 +5787,7 @@ class WebhookBridge:
                 events.append(f"{repo_slug_value} issue#{number}: stale issue scan failed: {exc}")
         return events
 
-    def _active_pr_repo(self, repo_slug_value: str) -> list[str]:
+    def _active_pr_repo(self, repo_slug_value: str, *, queue_actions: bool = True) -> list[str]:
         events: list[str] = []
         expected_usernames = username_candidates(self.config.username, self.config.username_aliases)
         tracked_open_numbers = self.store.tracked_item_numbers(repo_slug_value, "pull_request", "open")
@@ -5817,7 +5833,23 @@ class WebhookBridge:
                     continue
 
                 if pr_review_newly_requested_or_head_changed(previous_snapshot, snapshot, expected_usernames):
-                    events.append(f"{repo_slug_value} PR#{number}: review requested")
+                    if queue_actions:
+                        response = self._queue_automatic_pr_review_from_snapshot(
+                            repo_slug_value,
+                            number,
+                            pr_data,
+                            snapshot,
+                            current_relationships,
+                            event_type="pr_review_active",
+                            delivery_prefix="active",
+                        )
+                        if response.status_code == 202:
+                            events.append(f"{repo_slug_value} PR#{number}: review requested; queued automatic PR review")
+                        else:
+                            reason = response.body.get("reason") or response.body.get("status") or "not available"
+                            events.append(f"{repo_slug_value} PR#{number}: review requested; skipped automatic PR review: {reason}")
+                    else:
+                        events.append(f"{repo_slug_value} PR#{number}: review requested")
                     continue
 
                 retry_low_confidence = pr_review_current_head_low_confidence_needs_retry(
@@ -5871,7 +5903,10 @@ class WebhookBridge:
         return events
 
     def _monitor_repo(self, repo_slug_value: str, *, queue_actions: bool = True) -> list[str]:
-        return self._discovery_repo(repo_slug_value, queue_actions=queue_actions) + self._active_pr_repo(repo_slug_value)
+        return self._discovery_repo(repo_slug_value, queue_actions=queue_actions) + self._active_pr_repo(
+            repo_slug_value,
+            queue_actions=queue_actions,
+        )
 
     def _reconcile_tracked_issues(self, repo_slug_value: str, open_numbers: set[int]) -> list[str]:
         events: list[str] = []
@@ -5960,8 +5995,62 @@ class WebhookBridge:
                     and not relationships.get("created_by_me")
                     and pr_review_newly_requested_or_head_changed(previous_snapshot, snapshot, expected_usernames)
                 ):
-                    events.append(f"{repo_slug_value} PR#{number}: review requested")
+                    response = self._queue_automatic_pr_review_from_snapshot(
+                        repo_slug_value,
+                        number,
+                        pr_data,
+                        snapshot,
+                        relationships,
+                        event_type="pr_review_catchup",
+                        delivery_prefix="catchup",
+                    )
+                    if response.status_code == 202:
+                        events.append(f"{repo_slug_value} PR#{number}: review requested; queued automatic PR review")
+                    else:
+                        reason = response.body.get("reason") or response.body.get("status") or "not available"
+                        events.append(f"{repo_slug_value} PR#{number}: review requested; skipped automatic PR review: {reason}")
         return events
+
+    def _queue_automatic_pr_review_from_snapshot(
+        self,
+        repo_slug_value: str,
+        number: int,
+        pr_data: dict[str, Any],
+        snapshot: dict[str, Any],
+        relationships: dict[str, bool],
+        *,
+        event_type: str,
+        delivery_prefix: str,
+    ) -> WebhookResponse:
+        head_sha = str(snapshot.get("head_sha") or "")
+        active_job: dict[str, Any] = {}
+        if head_sha and head_sha != "unknown":
+            active_job = self.store.job_dict_for_key(f"{repo_slug_value}#{number}@{head_sha}")
+        review_status = review_status_for_item(
+            repo_slug_value,
+            "pull_request",
+            number,
+            head_sha,
+            snapshot=snapshot,
+            username=self.config.username,
+            aliases=self.config.username_aliases,
+        )
+        action = pr_review_manual_action_for_item(
+            repo_slug_value,
+            number,
+            snapshot,
+            relationships,
+            review_status,
+            active_job,
+        )
+        if not action.get("available"):
+            return WebhookResponse(200, {"status": "not_available", "reason": action.get("reason") or "not available"})
+        return self._queue_pr_review_from_pr_data(
+            repo_slug_value,
+            pr_data,
+            event_type=event_type,
+            delivery_prefix=delivery_prefix,
+        )
 
     def _queue_pr_review_from_pr_data(
         self,
@@ -6309,7 +6398,7 @@ class WebhookBridge:
         reviewer = payload.get("requested_reviewer") or payload.get("reviewer")
         if not user_matches(reviewer, self.config.username):
             return self._record_ignored(delivery_id, event_type, "pr-reviewer", "review request was for another user")
-        return self._track_pr_from_payload(delivery_id, event_type, payload, "review requested; manual PR review required")
+        return self._track_pr_from_payload(delivery_id, event_type, payload, "review requested", queue_review=True)
 
     def _handle_pull_request_event(self, delivery_id: str, event_type: str, payload: dict[str, Any]) -> WebhookResponse:
         action = payload.get("action")
@@ -6319,9 +6408,17 @@ class WebhookBridge:
         reviewers = pr.get("requested_reviewers") or payload.get("requested_reviewers")
         if not user_matches(reviewers, self.config.username):
             return self._record_ignored(delivery_id, event_type, "pr-reviewer", "PR is not assigned for this reviewer")
-        return self._track_pr_from_payload(delivery_id, event_type, payload, "PR changed; manual PR review required")
+        return self._track_pr_from_payload(delivery_id, event_type, payload, "PR changed", queue_review=True)
 
-    def _track_pr_from_payload(self, delivery_id: str, event_type: str, payload: dict[str, Any], summary: str) -> WebhookResponse:
+    def _track_pr_from_payload(
+        self,
+        delivery_id: str,
+        event_type: str,
+        payload: dict[str, Any],
+        summary: str,
+        *,
+        queue_review: bool = False,
+    ) -> WebhookResponse:
         repo_ctx = extract_webhook_repo(payload, self.config.a2a_root)
         if not repo_ctx:
             return self._record_ignored(delivery_id, event_type, "pr-repo", "repository is not mapped locally")
@@ -6341,13 +6438,39 @@ class WebhookBridge:
         )
         key = f"{owner}/{repo}#{number}@{head_sha}"
         repo_slug_value = f"{owner}/{repo}"
+        snapshot_pr = dict(pr)
+        if isinstance(head, dict):
+            snapshot_pr["head"] = first_text(head.get("ref"), snapshot_pr.get("head"))
+            if head_sha and head_sha != "unknown":
+                snapshot_pr["headSha"] = head_sha
         snapshot = annotate_snapshot_relationship_labels(
-            build_pr_snapshot(repo_slug_value, pr, []),
+            build_pr_snapshot(repo_slug_value, snapshot_pr, []),
             self.config.username,
             aliases=self.config.username_aliases,
             own_branch_prefixes=self.config.own_branch_prefixes,
         )
         self.store.record_tracking_snapshot(snapshot)
+        if queue_review:
+            relationships = snapshot_relationships(
+                snapshot,
+                self.config.username,
+                aliases=self.config.username_aliases,
+                own_branch_prefixes=self.config.own_branch_prefixes,
+            )
+            response = self._queue_automatic_pr_review_from_snapshot(
+                repo_slug_value,
+                number,
+                snapshot_pr,
+                snapshot,
+                relationships,
+                event_type="pr_review_webhook",
+                delivery_prefix="webhook",
+            )
+            if response.status_code == 202:
+                logging.info("queued PR review webhook event=%s delivery=%s key=%s summary=%s", event_type, delivery_id, key, summary)
+                return response
+            reason = response.body.get("reason") or response.body.get("status") or "not available"
+            summary = f"{summary}; automatic PR review skipped: {reason}"
         if not self.store.record_delivery(delivery_id, event_type, key, "tracked", summary):
             return WebhookResponse(200, {"status": "duplicate", "delivery_id": delivery_id})
         logging.info("tracked PR webhook event=%s delivery=%s key=%s summary=%s", event_type, delivery_id, key, summary)
@@ -6902,7 +7025,7 @@ def command_sync_review_requests(args: argparse.Namespace) -> int:
     events = bridge.sync_review_requests()
     for event in events:
         print(event)
-    print(f"Catch-up tracked {len(events)} PR review request event(s); queued 0.")
+    print(f"Catch-up tracked {len(events)} PR review request event(s); queued {bridge.jobs.qsize()}.")
     return 0
 
 
@@ -7257,9 +7380,10 @@ def make_ui_handler(config: WebhookConfig, bridge: WebhookBridge | None = None):
                     return
                 if parsed.path == "/api/sync-review-requests":
                     updates: dict[str, Any] = {
-                        "runtime": body.get("runtime") if body.get("runtime") in {"auto", "claude", "codex", "none"} else "none",
                         "pr_auto_post": bool(body.get("post")) and not bool(body.get("no_post", True)),
                     }
+                    if body.get("runtime") in {"auto", "claude", "codex", "none"}:
+                        updates["runtime"] = body.get("runtime")
                     if isinstance(body.get("repo"), list):
                         updates["pr_review_poll_repos"] = tuple(str(item) for item in body["repo"] if item)
                     elif isinstance(body.get("repo"), str) and body.get("repo"):
@@ -7269,7 +7393,7 @@ def make_ui_handler(config: WebhookConfig, bridge: WebhookBridge | None = None):
                     action_config = WebhookConfig(**{**config.__dict__, **updates})
                     action_bridge = WebhookBridge(action_config, start_worker=False)
                     events = action_bridge.sync_review_requests()
-                    self._json(200, {"events": events, "queued": 0, "processed": 0})
+                    self._json(200, {"events": events, "queued": action_bridge.jobs.qsize(), "processed": 0})
                     return
                 if parsed.path == "/api/scan-stale-issues":
                     updates: dict[str, Any] = {}

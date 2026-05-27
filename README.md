@@ -252,8 +252,8 @@ Automation trigger policy:
 | Trigger | Target action | Automation gate |
 | --- | --- | --- |
 | Newly discovered or newly assigned issue assigned to `A2A_GITEA_USERNAME` | Fetch the issue, create a task package, rate `difficulty`, `workload`, `importance`, and `complexity`, then choose an automation path. | `hard-human-handoff`: package and dashboard handoff only. `mid-human-review`: plan package only. `easy-direct`: implement only if the strict gate passes. |
-| New PR review request for `A2A_GITEA_USERNAME` | Track the PR, move it into the dashboard reviewing lane, and expose a manual Start AI review action. | Does not auto-queue an agent review from polling. Manual review uses `owner/repo#pr@head_sha` dedupe and skips PRs authored by `A2A_GITEA_USERNAME`. |
-| Review-requested PR receives new commits | Update the tracked PR head and mark the current head as needing review. | Does not auto-queue; use the dashboard Start AI review button when ready. |
+| New PR review request for `A2A_GITEA_USERNAME` | Track the PR, move it into the dashboard reviewing lane, and queue a PR review job automatically. | Uses `owner/repo#pr@head_sha` dedupe and skips PRs authored by `A2A_GITEA_USERNAME` or already reviewed at the current head. |
+| Review-requested PR receives new commits | Update the tracked PR head and queue a fresh PR review for the current head. | Uses the same current-head dedupe and skips if a review job is already queued/running or the current head is already reviewed. |
 | Reviewer-delegate PR receives a new external comment or review comment | Update dashboard state as needing attention. | Does not auto-reply from polling. |
 | PR authored by `A2A_GITEA_USERNAME` receives comments/reviews | Update the dashboard state as needing attention. | Does not auto-reply or auto-review your own PR. |
 | Manual stale issue scan | Scan open issues with no assignee and no linked PR. | External untackled issues get a stale-scan job. Issues created by or assigned to `A2A_GITEA_USERNAME` get normal issue assessment. Assigned issues and linked-PR issues are skipped. |
@@ -270,7 +270,7 @@ By default successful PR reviews auto-post their normalized review comment. Issu
 
 The `serve` process keeps the webhook tunnel up, but automation is driven by one local polling loop while webhooks are disabled:
 
-- Unified monitor poll, default 60s: scans all configured repos for open issues/PRs, stores snapshots and relationship labels, queues newly assigned issue triage, and tracks review-requested PRs, new PR heads, and delegate comments for manual dashboard action.
+- Unified monitor poll, default 60s: scans all configured repos for open issues/PRs, stores snapshots and relationship labels, queues newly assigned issue triage, queues newly requested PR reviews or new PR heads, and tracks delegate comments for manual dashboard action.
 
 Local SQLite keeps snapshots for open tracked items and marks closed/merged items inactive so they are hidden from the main board. Task packages, job records, and tracking history are preserved for audit/debugging. In-flight PR reviews re-check the PR head before posting; if the head changed while the agent was reviewing, the stale result is kept locally but not posted. PR review packages fetch current PR metadata, all PR conversation comments, all PR review comments, and the full Gitea diff by default. Request-changes reviews are not auto-posted when the review admits it used truncated, unavailable, or unverified diff evidence.
 
@@ -364,7 +364,7 @@ http://127.0.0.1:48730
 
 The dashboard follows the same observability shape as Symphony's local UI: state summaries, tracked work, change timeline, jobs, deliveries, task packages, and explicit local actions. It binds to `127.0.0.1` by default and does not expose secrets.
 
-Run the older PR-review-only catch-up once. This is tracking-only; it updates local PR review-request state but does not queue AI review jobs:
+Run the older PR-review-only catch-up once. It updates local PR review-request state and queues AI review jobs for newly requested or changed PR heads:
 
 ```bash
 bin/a2a-agent-runner sync-review-requests

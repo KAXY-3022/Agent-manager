@@ -1765,7 +1765,44 @@ mid-human-review
             self.assertNotIn("queued assigned issue triage", "\n".join(events))
             self.assertEqual(bridge.jobs.qsize(), 0)
 
-    def test_active_pr_poll_tracks_review_request_without_queueing_job(self):
+    def test_discovery_queues_new_review_request_job(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("ExampleOrg/project-core",),
+                    "monitor_limit": 10,
+                    "monitor_pr_reviews": True,
+                }
+            )
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            pr = {
+                "index": 450,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Needs review",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                "head": "feature/review",
+                "headSha": "abc123",
+                "requested_reviewers": [{"login": "Dev.User"}],
+                "reviews": [],
+                "comments": [],
+            }
+
+            with mock.patch.object(a2a_runner, "list_open_issues", return_value=[]), \
+                mock.patch.object(a2a_runner, "list_open_prs", return_value=[{"index": 450}]), \
+                mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
+                events = bridge.discovery_once()
+
+            self.assertIn("review requested", "\n".join(events))
+            self.assertIn("queued automatic PR review", "\n".join(events))
+            job = bridge.jobs.get_nowait()
+            self.assertEqual(job.kind, "pr_review")
+            self.assertEqual(job.event_type, "pr_review_discovery")
+            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#450@abc123")
+
+    def test_active_pr_poll_queues_review_request_job(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
                 **{
@@ -1811,13 +1848,67 @@ mid-human-review
                 events = bridge.active_pr_once()
 
             self.assertIn("review requested", "\n".join(events))
-            self.assertTrue(bridge.jobs.empty())
+            self.assertIn("queued automatic PR review", "\n".join(events))
+            job = bridge.jobs.get_nowait()
+            self.assertEqual(job.kind, "pr_review")
+            self.assertEqual(job.event_type, "pr_review_active")
+            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#450@abc123")
             items = bridge.store.tracked_items_dicts(10, username="Dev.User")
             tracked = next(item for item in items if item["number"] == 450)
             self.assertTrue(tracked["relationships"]["review_requested_from_me"])
-            self.assertTrue(tracked["pr_review_action"]["available"])
+            self.assertFalse(tracked["pr_review_action"]["available"])
+            self.assertEqual(tracked["pr_review_action"]["reason"], "review job already queued")
 
-    def test_active_pr_poll_tracks_assigned_review_without_queueing_job(self):
+    def test_active_pr_poll_track_only_does_not_queue_review_job(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("ExampleOrg/project-core",),
+                    "monitor_limit": 10,
+                    "monitor_pr_reviews": True,
+                }
+            )
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 450,
+                    "title": "Needs review",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                    "state": "open",
+                    "author": "Other.User",
+                    "head": "feature/review",
+                    "head_sha": "abc123",
+                    "requested_reviewers": [],
+                    "reviews": [],
+                    "review_comments": [],
+                    "comments": [],
+                }
+            )
+            pr = {
+                "index": 450,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Needs review",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                "head": "feature/review",
+                "headSha": "abc123",
+                "requested_reviewers": [{"login": "Dev.User"}],
+                "reviews": [],
+                "comments": [],
+            }
+
+            with mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
+                events = bridge.active_pr_once(queue_actions=False)
+
+            self.assertIn("review requested", "\n".join(events))
+            self.assertNotIn("queued automatic PR review", "\n".join(events))
+            self.assertTrue(bridge.jobs.empty())
+
+    def test_active_pr_poll_queues_assigned_review_job(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
                 **{
@@ -1865,13 +1956,18 @@ mid-human-review
                 events = bridge.active_pr_once()
 
             self.assertIn("review requested", "\n".join(events))
-            self.assertTrue(bridge.jobs.empty())
+            self.assertIn("queued automatic PR review", "\n".join(events))
+            job = bridge.jobs.get_nowait()
+            self.assertEqual(job.kind, "pr_review")
+            self.assertEqual(job.event_type, "pr_review_active")
+            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#451@abc123")
             items = bridge.store.tracked_items_dicts(10, username="Dev.User")
             tracked = next(item for item in items if item["number"] == 451)
             self.assertTrue(tracked["relationships"]["assigned_to_me"])
-            self.assertTrue(tracked["pr_review_action"]["available"])
+            self.assertFalse(tracked["pr_review_action"]["available"])
+            self.assertEqual(tracked["pr_review_action"]["reason"], "review job already queued")
 
-    def test_active_pr_poll_tracks_rereview_when_requested_head_changes_without_queueing_job(self):
+    def test_active_pr_poll_queues_rereview_when_requested_head_changes(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
                 **{
@@ -1917,7 +2013,11 @@ mid-human-review
                 events = bridge.active_pr_once()
 
             self.assertIn("review requested", "\n".join(events))
-            self.assertTrue(bridge.jobs.empty())
+            self.assertIn("queued automatic PR review", "\n".join(events))
+            job = bridge.jobs.get_nowait()
+            self.assertEqual(job.kind, "pr_review")
+            self.assertEqual(job.event_type, "pr_review_active")
+            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#450@newsha")
 
     def test_manual_pr_review_queue_creates_review_job_for_requested_review(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1953,7 +2053,42 @@ mid-human-review
             self.assertEqual(job.event_type, "pr_review_manual")
             self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#450@abc123")
 
-    def test_sync_review_requests_tracks_without_queueing_review_jobs(self):
+    def test_pr_review_webhook_queues_review_job(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "project-core" / ".git").mkdir(parents=True)
+            bridge = a2a_runner.WebhookBridge(self.make_config(tmpdir), start_worker=False)
+            payload = {
+                "action": "review_requested",
+                "requested_reviewer": {"login": "Dev.User"},
+                "repository": {
+                    "full_name": "ExampleOrg/project-core",
+                    "name": "project-core",
+                    "owner": {"login": "ExampleOrg"},
+                },
+                "pull_request": {
+                    "index": 450,
+                    "number": 450,
+                    "state": "open",
+                    "author": {"login": "Other.User"},
+                    "title": "Needs review",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                    "head": {"ref": "feature/review", "sha": "abc123"},
+                    "requested_reviewers": [{"login": "Dev.User"}],
+                    "reviews": [],
+                    "comments": [],
+                },
+            }
+
+            response = bridge._handle_pr_review_request("delivery-pr-review-450", "pull_request_review_request", payload)
+
+            self.assertEqual(response.status_code, 202)
+            self.assertEqual(response.body["status"], "queued")
+            job = bridge.jobs.get_nowait()
+            self.assertEqual(job.kind, "pr_review")
+            self.assertEqual(job.event_type, "pr_review_webhook")
+            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#450@abc123")
+
+    def test_sync_review_requests_queues_review_jobs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
                 **{
@@ -1983,7 +2118,11 @@ mid-human-review
                 events = bridge.sync_review_requests()
 
             self.assertIn("review requested", "\n".join(events))
-            self.assertTrue(bridge.jobs.empty())
+            self.assertIn("queued automatic PR review", "\n".join(events))
+            job = bridge.jobs.get_nowait()
+            self.assertEqual(job.kind, "pr_review")
+            self.assertEqual(job.event_type, "pr_review_catchup")
+            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#450@abc123")
             tracked = bridge.store.tracking_snapshot("ExampleOrg/project-core", "pull_request", 450)
             self.assertEqual(tracked["head_sha"], "abc123")
 
