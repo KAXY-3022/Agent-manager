@@ -4073,11 +4073,12 @@
         $("draft-meta").innerHTML = `
           <div class="draft-meta-row"><span>Title</span><strong title="${esc(task.title || "")}">${esc(task.title || "(untitled)")}</strong></div>
           <div class="draft-meta-row"><span>Task</span><strong title="${esc(task.task_dir || "")}">${esc(task.task_id || "")}</strong></div>
-          <div class="draft-meta-row"><span>Reason</span><strong title="${esc(task.post_skipped_reason || "")}">${esc(task.post_skipped_reason || "ready for review")}</strong></div>
+          <div class="draft-meta-row"><span>Reason</span><strong title="${esc(task.post_skipped_reason || "")}">${esc(task.postable === false ? "failed run is not postable" : (task.post_skipped_reason || "ready for review"))}</strong></div>
         `;
         $("draft-editor").value = task.suggested_comment || "";
         setDraftPreview(task.comment_body || "");
         setDraftButtons(false);
+        applyDraftPostableState(task);
       } catch (err) {
         if (seq === state.draftLoadSeq) {
           state.loadedDraftTask = null;
@@ -4131,6 +4132,13 @@
       });
       setDraftApproveAutoFixButton(!loaded);
     }
+    function applyDraftPostableState(task = {}) {
+      if (task.postable !== false) return;
+      ["draft-save", "draft-post"].forEach(id => {
+        const btn = $(id);
+        if (btn) btn.disabled = true;
+      });
+    }
     async function approveLoadedDraftAutoFix() {
       const task = state.loadedDraftTask || {};
       const taskRef = task.task_dir || selectedDraftRef();
@@ -4154,10 +4162,15 @@
         setDraftButtons(false);
       } finally {
         if (btn) btn.textContent = original || "Approve auto-fix";
+        applyDraftPostableState(state.loadedDraftTask || {});
       }
     }
     async function postTaskDraft(taskRef, suggestedComment = "") {
       if (!taskRef) return false;
+      if ((state.loadedDraftTask || {}).postable === false) {
+        toast("Failed review runs are not postable");
+        return false;
+      }
       if (!confirm("Post this approved comment to Gitea?")) return false;
       const body = {task: taskRef};
       if (String(suggestedComment || "").trim()) body.suggested_comment = suggestedComment;
@@ -4189,6 +4202,7 @@
         await postTaskDraft(taskRef, draftEditorValue());
       } finally {
         setDraftButtons(!selectedDraftRef());
+        applyDraftPostableState(state.loadedDraftTask || {});
       }
     }
     async function openDraftView() {
@@ -4303,6 +4317,7 @@
         toast(err.message);
       } finally {
         setDraftButtons(false);
+        applyDraftPostableState(state.loadedDraftTask || {});
       }
     });
     $("draft-post").addEventListener("click", async () => {

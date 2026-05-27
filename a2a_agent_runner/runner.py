@@ -108,6 +108,9 @@ INTERNAL_REVIEW_SECTIONS = (
     "Suggested Issue Comment",
     "Suggested PR Comment",
 )
+SUGGESTED_COMMENT_HEADING_RE = re.compile(
+    r"(?im)^##[ \t]+Suggested[ \t]+(?:Issue|PR)[ \t]+Comment[ \t]*$"
+)
 
 
 class DemoError(RuntimeError):
@@ -2416,11 +2419,11 @@ def resolve_task(
 
 
 def extract_suggested_comment(review: str) -> str:
-    markers = ("## Suggested Issue Comment", "## Suggested PR Comment")
-    marker = next((item for item in markers if item in review), None)
-    if marker is None:
+    matches = list(SUGGESTED_COMMENT_HEADING_RE.finditer(review))
+    if not matches:
         return unwrap_markdown_comment_fence(review)
-    after = review.split(marker, 1)[1].strip()
+    marker = matches[-1]
+    after = review[marker.end() :].strip()
     next_heading = internal_review_section_boundary(after)
     if next_heading is not None:
         after = after[: next_heading.start()].strip()
@@ -2686,13 +2689,14 @@ def replace_suggested_comment_section(review: str, record: dict[str, Any], sugge
     comment = str(suggested_comment or "").strip()
     if record.get("item_type") == "pull_request":
         comment = normalize_pr_suggested_comment(comment)
-    for marker in ("## Suggested Issue Comment", "## Suggested PR Comment"):
-        if marker not in review:
-            continue
-        prefix, after = review.split(marker, 1)
+    matches = list(SUGGESTED_COMMENT_HEADING_RE.finditer(review))
+    if matches:
+        marker = matches[-1]
+        prefix = review[: marker.start()]
+        after = review[marker.end() :]
         next_heading = internal_review_section_boundary(after)
         suffix = after[next_heading.start() :] if next_heading is not None else ""
-        return f"{prefix.rstrip()}\n\n{marker}\n\n{comment}{suffix.rstrip()}\n"
+        return f"{prefix.rstrip()}\n\n{heading}\n\n{comment}{suffix.rstrip()}\n"
     return f"{review.rstrip()}\n\n{heading}\n\n{comment}\n"
 
 
@@ -2720,8 +2724,13 @@ def task_review_payload(
 ) -> dict[str, Any]:
     record_path, review_path, record, repo, target = read_post_target(task_dir)
     review = review_override if review_override is not None else review_path.read_text(encoding="utf-8").strip()
-    suggested = format_pr_comment(review) if record.get("item_type") == "pull_request" else extract_suggested_comment(review)
-    comment_body = build_comment_body(record, review, suggested_only=True, max_chars=max_chars)
+    postable = str(record.get("runtime_status") or "") != "failed"
+    if postable:
+        suggested = format_pr_comment(review) if record.get("item_type") == "pull_request" else extract_suggested_comment(review)
+        comment_body = build_comment_body(record, review, suggested_only=True, max_chars=max_chars)
+    else:
+        suggested = failed_task_display_comment(record)
+        comment_body = suggested
     return {
         "task_id": task_dir.name,
         "task_dir": str(task_dir),
@@ -2747,14 +2756,27 @@ def task_review_payload(
         "human_handoff_taken_at": record.get("human_handoff_taken_at") or "",
         "human_handoff_taken_by": record.get("human_handoff_taken_by") or "",
         "human_handoff_status": record.get("human_handoff_status") or "",
+        "postable": postable,
         "suggested_comment": suggested.strip(),
         "comment_body": comment_body,
         "review": review,
     }
 
 
+def failed_task_display_comment(record: dict[str, Any]) -> str:
+    runtime = str(record.get("runtime_used") or record.get("runtime_requested") or "agent")
+    return (
+        "Review job failed before producing a usable comment.\n\n"
+        f"Runtime: `{runtime}`\n"
+        "Status: `failed`\n\n"
+        "This failed run is kept for debugging and is not postable to Gitea."
+    )
+
+
 def save_task_suggested_comment(task_dir: Path, suggested_comment: str) -> dict[str, Any]:
     record_path, review_path, record, _, _ = read_post_target(task_dir)
+    if str(record.get("runtime_status") or "") == "failed":
+        raise DemoError("failed review task packages cannot be edited as postable drafts")
     review = review_path.read_text(encoding="utf-8")
     updated_review = replace_suggested_comment_section(review, record, suggested_comment)
     write_text(review_path, updated_review)
@@ -2933,6 +2955,8 @@ def post_review_comment(
         repo_override=repo_override,
         target_override=target_override,
     )
+    if str(record.get("runtime_status") or "") == "failed":
+        raise DemoError("failed review task packages cannot be posted")
     review = review_path.read_text(encoding="utf-8").strip()
     comment_body = build_comment_body(record, review, suggested_only=suggested_only, max_chars=max_chars)
     duplicate_reason = duplicate_comment_reason(

@@ -2839,6 +2839,19 @@ Still valid and should be assigned.
 
         self.assertEqual(a2a_runner.format_pr_comment(report), a2a_runner.extract_suggested_comment(report))
 
+    def test_extract_suggested_comment_uses_latest_heading(self):
+        report = """# Failure Output
+## Suggested PR Comment
+
+Prompt template with stale reviewer comments.
+
+## Suggested PR Comment
+
+Final clean comment.
+"""
+
+        self.assertEqual(a2a_runner.extract_suggested_comment(report), "Final clean comment.")
+
     def test_format_pr_comment_unwraps_markdown_fenced_report(self):
         report = """# PR Review
 ## Suggested PR Comment
@@ -3005,6 +3018,50 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("Edited comment.", saved["comment_body"])
         self.assertIn("Edited comment.", saved_review)
         self.assertIn("review_edited_at", saved_record)
+
+    def test_failed_pr_review_payload_is_not_postable_or_prompt_sliced(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = Path(tmpdir) / "failed"
+            task_dir.mkdir()
+            record = {
+                "task_id": "failed",
+                "repo": "ExampleOrg/project-core",
+                "item_type": "pull_request",
+                "target_index": "503",
+                "pull_url": "https://gitea.example.com/ExampleOrg/project-core/pulls/503",
+                "title": "Needs review",
+                "runtime_requested": "codex",
+                "runtime_used": "codex",
+                "runtime_status": "failed",
+                "posted": False,
+            }
+            failed_review = """# Agent Review
+
+## Failure Output
+
+```text
+Original prompt:
+
+## Suggested PR Comment
+
+Old reviewer comment that must not become a draft.
+```
+"""
+            a2a_runner.write_json(task_dir / "record.json", record)
+            a2a_runner.write_text(task_dir / "review.md", failed_review)
+
+            payload = a2a_runner.task_review_payload(task_dir)
+
+            with self.assertRaises(a2a_runner.DemoError):
+                a2a_runner.save_task_suggested_comment(task_dir, "Edited")
+            with self.assertRaises(a2a_runner.DemoError):
+                a2a_runner.post_review_comment(task_dir, suggested_only=True, max_chars=12000)
+
+        self.assertFalse(payload["postable"])
+        self.assertIn("Review job failed before producing a usable comment.", payload["suggested_comment"])
+        self.assertIn("not postable", payload["comment_body"])
+        self.assertNotIn("Old reviewer comment", payload["suggested_comment"])
+        self.assertNotIn("Old reviewer comment", payload["comment_body"])
 
     def test_task_review_payload_preserves_new_pr_review_heading(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3617,6 +3674,14 @@ Choose one: `SHIP` / `BLOCK` / `NEEDS-HUMAN`
         self.assertIn("Failed to load draft package:", ui)
         self.assertIn("finally {\n        if (seq === state.draftLoadSeq) state.draftLoading = false;", ui)
         self.assertNotIn('state.view === "drafts" && !state.draftLoading', ui)
+
+    def test_draft_review_page_marks_failed_runs_not_postable(self):
+        ui = a2a_runner.load_ui_html()
+
+        self.assertIn("applyDraftPostableState", ui)
+        self.assertIn("task.postable === false", ui)
+        self.assertIn("failed run is not postable", ui)
+        self.assertIn("Failed review runs are not postable", ui)
 
     def test_reviewed_pr_hides_stale_needs_human_review_job_indicator(self):
         self.assertFalse(
