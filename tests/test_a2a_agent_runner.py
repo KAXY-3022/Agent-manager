@@ -54,6 +54,36 @@ class RunnerStateTests(unittest.TestCase):
             own_branch_prefixes=("codex/",),
         )
 
+    def test_generated_webhook_env_enables_automatic_failed_retries(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / "gitea-webhook.env"
+
+            created = a2a_runner.ensure_webhook_env(env_path)
+            values = a2a_runner.parse_env_file(env_path)
+
+        self.assertTrue(created)
+        self.assertEqual(values["A2A_GITEA_FAILED_RETRY_LIMIT"], "3")
+
+    def test_load_webhook_config_defaults_automatic_failed_retries_to_three(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / "gitea-webhook.env"
+            env_path.write_text(
+                "\n".join(
+                    [
+                        "A2A_GITEA_WEBHOOK_SECRET=test-secret",
+                        "A2A_GITEA_REPO=ExampleOrg/project-core",
+                        "A2A_GITEA_PR_REVIEW_POLL_REPOS=ExampleOrg/project-core",
+                        "A2A_GITEA_MONITOR_REPOS=ExampleOrg/project-core",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.dict(os.environ, {}, clear=True):
+                config = a2a_runner.load_webhook_config(env_path, create_env=False)
+
+        self.assertEqual(config.retry_failed_limit, 3)
+
     def test_setup_webhook_logging_replaces_existing_root_handlers(self):
         root_logger = logging.getLogger()
         original_handlers = list(root_logger.handlers)

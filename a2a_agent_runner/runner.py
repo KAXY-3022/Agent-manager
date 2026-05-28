@@ -157,6 +157,7 @@ RETRYABLE_RUNTIME_FAILURE_PATTERNS = TRANSIENT_JOB_ERROR_PATTERNS + (
     "reconnecting",
 )
 TRANSIENT_JOB_RETRY_LIMIT = 3
+DEFAULT_FAILED_JOB_RETRY_LIMIT = 3
 LOW_CONFIDENCE_PR_REVIEW_REASON = "request-changes review used incomplete or unverified diff evidence"
 PR_REVIEW_COMPLETE_COMMENTS = 0
 PR_REVIEW_COMPLETE_DIFF_CHARS = 0
@@ -3156,7 +3157,7 @@ def ensure_webhook_env(path: Path) -> bool:
             f"A2A_GITEA_REPO={DEFAULT_REPO}",
             "A2A_GITEA_ISSUE_AUTO_POST=false",
             "A2A_GITEA_PR_AUTO_POST=true",
-            "A2A_GITEA_FAILED_RETRY_LIMIT=0",
+            f"A2A_GITEA_FAILED_RETRY_LIMIT={DEFAULT_FAILED_JOB_RETRY_LIMIT}",
             "A2A_GITEA_WEBHOOK_JOB_TIMEOUT_SECONDS=14400",
             "A2A_GITEA_WORKER_COUNT=2",
             "A2A_CODEX_MODEL_PROVIDER=",
@@ -3360,7 +3361,7 @@ def load_webhook_config(env_path: Path | None = None, create_env: bool = True) -
         runtime=os.environ.get("A2A_GITEA_WEBHOOK_RUNTIME", "codex"),
         issue_auto_post=parse_bool(os.environ.get("A2A_GITEA_ISSUE_AUTO_POST", "false")),
         pr_auto_post=parse_bool(os.environ.get("A2A_GITEA_PR_AUTO_POST", "true")),
-        retry_failed_limit=int(os.environ.get("A2A_GITEA_FAILED_RETRY_LIMIT", "0")),
+        retry_failed_limit=int(os.environ.get("A2A_GITEA_FAILED_RETRY_LIMIT", str(DEFAULT_FAILED_JOB_RETRY_LIMIT))),
         job_timeout_seconds=int(os.environ.get("A2A_GITEA_WEBHOOK_JOB_TIMEOUT_SECONDS", "14400")),
         worker_count=bounded_int(os.environ.get("A2A_GITEA_WORKER_COUNT", "2"), 2, 1, 4),
         issue_model=os.environ.get("A2A_CODEX_ISSUE_MODEL", "gpt-5.5"),
