@@ -3199,13 +3199,32 @@
       return Boolean(key && rel[key]);
     };
     const isWipTitle = (item) => /(^|\s)(wip|draft)\b/i.test(item.title || "");
+    const prLabels = (item) => {
+      const labels = (item.snapshot && item.snapshot.labels) || item.labels || [];
+      return Array.isArray(labels) ? labels.map(label => String(label || "").trim().toLowerCase()) : [];
+    };
+    const prIsReadyForReview = (item) => prLabels(item).some(label => label === "status: review-ready" || label === "review-ready" || label === "status: ready for review" || label === "ready for review");
+    const prHasAssignedReviewer = (item) => {
+      const rel = item.relationships || {};
+      if (rel.review_requested_from_me || rel.assigned_to_me) return true;
+      if (hasReviewRequest(item)) return true;
+      const snapshot = item.snapshot || {};
+      const requested = snapshot.requested_reviewers || [];
+      const assignees = snapshot.assignees || item.assignees || [];
+      const reviews = snapshot.reviews || [];
+      return Boolean(
+        (Array.isArray(requested) && requested.length) ||
+        (Array.isArray(assignees) && assignees.length) ||
+        (Array.isArray(reviews) && reviews.some(review => String(review.state || "").toUpperCase() === "REQUEST_REVIEW"))
+      );
+    };
     const boardColumnFor = (item) => {
       const rel = item.relationships || {};
       const review = item.review_status || {};
       if (item.item_type === "issue") return "";
       if (review.posted && review.reviewed && !review.stale) return "reviewed";
       if (rel.created_by_me) {
-        if (!isWipTitle(item) && hasReviewRequest(item)) return "under_review";
+        if (!isWipTitle(item) && (hasReviewRequest(item) || prIsReadyForReview(item))) return "under_review";
         return "wip";
       }
       if (rel.review_requested_from_me || rel.assigned_to_me) return "reviewing";
@@ -3388,6 +3407,7 @@
       const review = item.review_status || {};
       if (review.stale) tags.push(["stale risk", "warn"]);
       if (attentionNeeded(item)) tags.push(["needs eyes", "warn"]);
+      if (item.item_type === "pull_request" && prIsReadyForReview(item) && !prHasAssignedReviewer(item)) tags.push(["no reviewer", "warn"]);
       return tags.slice(0, 2).map(([label, cls]) => `<span class="mini-tag ${cls}">${esc(label)}</span>`).join("");
     };
     const prReviewFlag = (item) => {

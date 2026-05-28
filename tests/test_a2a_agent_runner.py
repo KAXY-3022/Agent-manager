@@ -3838,6 +3838,23 @@ ERROR: unexpected status 503 Service Unavailable: system cpu overloaded (current
         self.assertIn("if (item.has_review_request) return true", request_logic)
         self.assertIn("!(review.reviewed && !review.stale)", request_logic)
 
+    def test_ready_for_review_label_places_own_prs_under_review(self):
+        ui = a2a_runner.load_ui_html()
+        board_start = ui.index("const prLabels =")
+        board_end = ui.index("const cardRelationClass =", board_start)
+        board_logic = ui[board_start:board_end]
+        tag_start = ui.index("const priorityTags =")
+        tag_end = ui.index("const prReviewFlag =", tag_start)
+        tag_logic = ui[tag_start:tag_end]
+
+        self.assertIn('label === "status: review-ready"', board_logic)
+        self.assertIn("const prIsReadyForReview =", board_logic)
+        self.assertIn("const prHasAssignedReviewer =", board_logic)
+        self.assertIn("hasReviewRequest(item) || prIsReadyForReview(item)", board_logic)
+        self.assertIn('return "under_review"', board_logic)
+        self.assertIn('tags.push(["no reviewer", "warn"])', tag_logic)
+        self.assertIn("prIsReadyForReview(item) && !prHasAssignedReviewer(item)", tag_logic)
+
     def test_pr_cards_render_compact_identity_with_linked_issues(self):
         ui = a2a_runner.load_ui_html()
         identity_marker = "const prCardIdentity ="
