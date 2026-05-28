@@ -2747,7 +2747,7 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script>
     const state = { view: "board", itemFilter: "", stateFilter: "open", relationFilter: "", boardRelationFilter: "related", userNames: [], tasks: [], selectedDraftTask: "", loadedDraftRef: "", loadedDraftTask: null, selectedAttentionKey: "", attentionKeys: [], draftDirty: false, draftLoadSeq: 0, draftLoading: false };
-    const DEMO_MODE = window.location.pathname === "/demo" || new URLSearchParams(window.location.search).get("demo") === "1";
+    const DEMO_MODE = window.location.pathname === "/demo";
     const DEMO_STORAGE_KEY = "a2a-runner-demo-state-v1";
     const boardColumns = [
       {id:"wip", title:"WIP"},

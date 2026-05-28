@@ -3747,6 +3747,7 @@ Old reviewer comment that must not become a draft.
         self.assertIn('data-demo-add="issue-assessment"', ui)
         self.assertIn("const DEMO_MODE", ui)
         self.assertIn('window.location.pathname === "/demo"', ui)
+        self.assertNotIn("demo=1", ui)
         self.assertIn("DEMO_STORAGE_KEY", ui)
         self.assertIn("demoApi(path, options)", ui)
         self.assertIn("Local mock data only. No Gitea, jobs, or runner state are touched.", ui)
