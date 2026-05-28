@@ -4543,7 +4543,7 @@ class WebhookStateStore:
         except sqlite3.IntegrityError:
             pass
         with self.connect() as conn:
-            retry_statuses = ["failed"]
+            retry_statuses = ["failed", "stale"]
             retry_low_confidence = pr_review_current_head_low_confidence_needs_retry(
                 f"{job.owner}/{job.repo}",
                 job.number,
@@ -5685,7 +5685,14 @@ class WebhookBridge:
                 ))
             except Exception as exc:
                 logging.warning("discovery PR fetch failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
-        events.extend(self._reconcile_tracked_prs(repo_slug_value, open_pr_numbers))
+        events.extend(
+            self._reconcile_tracked_prs(
+                repo_slug_value,
+                open_pr_numbers,
+                expected_usernames=expected_usernames,
+                queue_actions=queue_actions,
+            )
+        )
         if pending_issue_analysis:
             issue_linked_prs = self.store.issue_linked_pr_index()
             for number, issue_data, snapshot in pending_issue_analysis:
@@ -5792,6 +5799,8 @@ class WebhookBridge:
         delivery_prefix: str,
     ) -> list[str]:
         events: list[str] = []
+        if normalized_snapshot_state(snapshot) != "open":
+            return events
         previous_relationships = snapshot_relationships(
             previous_snapshot or {},
             self.config.username,
@@ -5846,6 +5855,32 @@ class WebhookBridge:
             aliases=self.config.username_aliases,
         )
         current_head_job_status = self.store.job_status_for_key(current_head_key)
+        if (
+            current_relationships.get("review_requested_from_me")
+            and current_head_sha
+            and current_head_sha != "unknown"
+            and current_head_job_status == "stale"
+            and not current_review_status.get("reviewed")
+            and not current_review_status.get("current_head_failed")
+        ):
+            if queue_actions:
+                response = self._queue_automatic_pr_review_from_snapshot(
+                    repo_slug_value,
+                    number,
+                    pr_data,
+                    snapshot,
+                    current_relationships,
+                    event_type=event_type,
+                    delivery_prefix=delivery_prefix,
+                )
+                if response.status_code == 202:
+                    events.append(f"{repo_slug_value} PR#{number}: stale review; queued automatic PR review")
+                else:
+                    reason = response.body.get("reason") or response.body.get("status") or "not available"
+                    events.append(f"{repo_slug_value} PR#{number}: stale review; skipped automatic PR review: {reason}")
+            else:
+                events.append(f"{repo_slug_value} PR#{number}: stale review available")
+            return events
         if (
             current_relationships.get("review_requested_from_me")
             and current_head_sha
@@ -5943,7 +5978,14 @@ class WebhookBridge:
                 logging.warning("discovery tracked issue refresh failed repo=%s issue=%s error=%s", repo_slug_value, number, exc)
         return events
 
-    def _reconcile_tracked_prs(self, repo_slug_value: str, open_numbers: set[int]) -> list[str]:
+    def _reconcile_tracked_prs(
+        self,
+        repo_slug_value: str,
+        open_numbers: set[int],
+        *,
+        expected_usernames: set[str] | None = None,
+        queue_actions: bool = False,
+    ) -> list[str]:
         events: list[str] = []
         tracked_open_numbers = self.store.tracked_item_numbers(repo_slug_value, "pull_request", "open")
         for number in tracked_open_numbers:
@@ -5968,6 +6010,25 @@ class WebhookBridge:
                 summary = self.store.record_tracking_snapshot(snapshot)
                 if summary:
                     events.append(f"{repo_slug_value} PR#{number}: {summary}")
+                if expected_usernames is not None:
+                    current_relationships = snapshot_relationships(
+                        snapshot,
+                        self.config.username,
+                        aliases=self.config.username_aliases,
+                        own_branch_prefixes=self.config.own_branch_prefixes,
+                    )
+                    events.extend(self._handle_pr_snapshot_actions(
+                        repo_slug_value,
+                        number,
+                        previous_snapshot,
+                        snapshot,
+                        pr_data,
+                        current_relationships,
+                        expected_usernames,
+                        queue_actions=queue_actions,
+                        event_type="pr_review_discovery",
+                        delivery_prefix="discovery",
+                    ))
             except Exception as exc:
                 logging.warning("discovery tracked PR refresh failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
         return events

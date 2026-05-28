@@ -1895,6 +1895,182 @@ mid-human-review
             self.assertIn("comment reply review available", "\n".join(events))
             self.assertTrue(bridge.jobs.empty())
 
+    def test_discovery_reconcile_runs_review_actions_for_tracked_pr_missing_from_list_page(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("ExampleOrg/project-core",),
+                    "monitor_limit": 1,
+                    "monitor_pr_reviews": True,
+                }
+            )
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 450,
+                    "title": "Needs review",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                    "state": "open",
+                    "author": "Other.User",
+                    "head": "feature/review",
+                    "head_sha": "abc123",
+                    "requested_reviewers": [],
+                    "reviews": [],
+                    "review_comments": [],
+                    "comments": [],
+                }
+            )
+            pr = {
+                "index": 450,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Needs review",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                "head": "feature/review",
+                "headSha": "abc123",
+                "requested_reviewers": [{"login": "Dev.User"}],
+                "reviews": [],
+                "comments": [],
+            }
+
+            with mock.patch.object(a2a_runner, "list_open_issues", return_value=[]), \
+                mock.patch.object(a2a_runner, "list_open_prs", return_value=[]), \
+                mock.patch.object(a2a_runner, "fetch_pr", return_value=pr) as fetch_pr, \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]) as fetch_comments:
+                events = bridge.monitor_once()
+
+            self.assertEqual(fetch_pr.call_count, 1)
+            self.assertEqual(fetch_comments.call_count, 1)
+            self.assertIn("review requested", "\n".join(events))
+            self.assertIn("queued automatic PR review", "\n".join(events))
+            job = bridge.jobs.get_nowait()
+            self.assertEqual(job.event_type, "pr_review_discovery")
+            self.assertEqual(job.dedupe_key, "ExampleOrg/project-core#450@abc123")
+
+    def test_discovery_reconcile_does_not_queue_closed_tracked_pr(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("ExampleOrg/project-core",),
+                    "monitor_limit": 1,
+                    "monitor_pr_reviews": True,
+                }
+            )
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 450,
+                    "title": "Needs review",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                    "state": "open",
+                    "author": "Other.User",
+                    "head": "feature/review",
+                    "head_sha": "abc123",
+                    "requested_reviewers": ["Dev.User"],
+                    "reviews": [],
+                    "review_comments": [],
+                    "comments": [],
+                }
+            )
+            closed_pr = {
+                "index": 450,
+                "state": "closed",
+                "author": {"login": "Other.User"},
+                "title": "Needs review",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                "head": "feature/review",
+                "headSha": "def456",
+                "requested_reviewers": [{"login": "Dev.User"}],
+                "reviews": [],
+                "comments": [],
+            }
+
+            with mock.patch.object(a2a_runner, "list_open_issues", return_value=[]), \
+                mock.patch.object(a2a_runner, "list_open_prs", return_value=[]), \
+                mock.patch.object(a2a_runner, "fetch_pr", return_value=closed_pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
+                events = bridge.monitor_once()
+
+            self.assertNotIn("queued automatic PR review", "\n".join(events))
+            self.assertTrue(bridge.jobs.empty())
+            snapshot = bridge.store.tracking_snapshot("ExampleOrg/project-core", "pull_request", 450)
+            self.assertEqual(snapshot["state"], "closed")
+
+    def test_discovery_requeues_stale_requested_pr_review_when_retry_limit_allows(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config = a2a_runner.WebhookConfig(
+                **{
+                    **self.make_config(tmpdir).__dict__,
+                    "monitor_repos": ("ExampleOrg/project-core",),
+                    "monitor_limit": 10,
+                    "monitor_pr_reviews": True,
+                    "retry_failed_limit": 3,
+                }
+            )
+            bridge = a2a_runner.WebhookBridge(config, start_worker=False)
+            key = "ExampleOrg/project-core#450@abc123"
+            bridge.store.record_tracking_snapshot(
+                {
+                    "repo": "ExampleOrg/project-core",
+                    "item_type": "pull_request",
+                    "number": 450,
+                    "title": "Needs review",
+                    "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                    "state": "open",
+                    "author": "Other.User",
+                    "head": "feature/review",
+                    "head_sha": "abc123",
+                    "requested_reviewers": ["Dev.User"],
+                    "reviews": [],
+                    "review_comments": [],
+                    "comments": [],
+                }
+            )
+            stale_job = a2a_runner.WebhookJob(
+                kind="pr_review",
+                delivery_id="old-delivery",
+                event_type="pr_review_discovery",
+                dedupe_key=key,
+                owner="ExampleOrg",
+                repo="project-core",
+                number=450,
+                title="Needs review",
+                url="https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                head_sha="abc123",
+            )
+            bridge.store.record_delivery(stale_job.delivery_id, stale_job.event_type, stale_job.dedupe_key, "stale", "head changed")
+            self.assertEqual(bridge.store.reserve_or_retry_job(stale_job, None), "reserved")
+            bridge.store.update_job(key, "stale")
+            pr = {
+                "index": 450,
+                "state": "open",
+                "author": {"login": "Other.User"},
+                "title": "Needs review",
+                "url": "https://gitea.example.com/ExampleOrg/project-core/pulls/450",
+                "head": "feature/review",
+                "headSha": "abc123",
+                "requested_reviewers": [{"login": "Dev.User"}],
+                "reviews": [],
+                "comments": [],
+            }
+
+            with mock.patch.object(a2a_runner, "list_open_issues", return_value=[]), \
+                mock.patch.object(a2a_runner, "list_open_prs", return_value=[{"index": 450}]), \
+                mock.patch.object(a2a_runner, "fetch_pr", return_value=pr), \
+                mock.patch.object(a2a_runner, "fetch_pr_review_comments", return_value=[]):
+                events = bridge.discovery_once()
+
+            self.assertIn("stale review; queued automatic PR review", "\n".join(events))
+            job = bridge.jobs.get_nowait()
+            self.assertEqual(job.dedupe_key, key)
+            self.assertEqual(bridge.store.job_status_for_key(key), "queued")
+
     def test_active_pr_poll_queues_review_request_job(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             config = a2a_runner.WebhookConfig(
