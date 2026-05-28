@@ -3632,6 +3632,31 @@ Old reviewer comment that must not become a draft.
         self.assertNotIn("Old reviewer comment", payload["suggested_comment"])
         self.assertNotIn("Old reviewer comment", payload["comment_body"])
 
+    def test_runtime_failure_reason_prefers_final_provider_overload(self):
+        review = """# Agent Review
+
+## Failure Output
+
+```text
+WARN failed to refresh available models: missing field `models`
+Prompt excerpt with a nested fence:
+```python
+print("not the end of failure output")
+```
+ERROR: unexpected status 503 Service Unavailable: system cpu overloaded (current: 100.0%, threshold: 90%), url: https://console.example/v1/responses, cf-ray: abc
+```
+"""
+
+        reason = a2a_runner.runtime_failure_user_message(review, "codex")
+
+        self.assertEqual(
+            reason,
+            "Runtime provider overloaded (503 Service Unavailable): system CPU exceeded provider threshold "
+            "(current: 100.0%, threshold: 90%).",
+        )
+        self.assertNotIn("https://console.example", reason)
+        self.assertNotIn("cf-ray", reason.lower())
+
     def test_task_review_payload_preserves_new_pr_review_heading(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             task_dir = Path(tmpdir) / "task"
@@ -4805,6 +4830,7 @@ Old reviewer comment that must not become a draft.
         self.assertEqual(job_record["retry_count"], 1)
         self.assertEqual(deliveries[0]["status"], "queued")
         self.assertIn("retryable runtime failure", deliveries[0]["summary"])
+        self.assertIn("Runtime provider authentication failed", deliveries[0]["summary"])
 
     def test_non_transient_job_error_still_fails(self):
         with tempfile.TemporaryDirectory() as tmpdir:

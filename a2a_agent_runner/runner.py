@@ -1457,6 +1457,126 @@ Prepared a local task package. No automated review was run.
     raise DemoError(f"unsupported runtime: {runtime}")
 
 
+FAILURE_OUTPUT_SECTION_RE = re.compile(
+    r"(?ims)^##[ \t]+Failure[ \t]+Output[ \t]*\n+(.*?)(?=^##[ \t]+|\Z)"
+)
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+SECRET_TOKEN_RE = re.compile(r"\bsk-[A-Za-z0-9_-]{8,}\b")
+
+
+def strip_outer_markdown_fence(text: str) -> str:
+    lines = str(text or "").strip().splitlines()
+    if lines and re.match(r"^`{3,}[A-Za-z0-9_-]*\s*$", lines[0].strip()):
+        lines = lines[1:]
+    if lines and re.match(r"^`{3,}\s*$", lines[-1].strip()):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def markdown_fence_for_text(text: str) -> str:
+    runs = [len(match.group(0)) for match in re.finditer(r"`{3,}", str(text or ""))]
+    return "`" * max(3, (max(runs) + 1) if runs else 3)
+
+
+def runtime_failure_output_text(text: str) -> str:
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    heading = re.search(r"(?im)^##[ \t]+Failure[ \t]+Output[ \t]*$", raw)
+    if heading:
+        section = raw[heading.end() :].strip()
+        suggested_headings = list(SUGGESTED_COMMENT_HEADING_RE.finditer(section))
+        if suggested_headings:
+            section = section[: suggested_headings[-1].start()].strip()
+        return strip_outer_markdown_fence(section)
+    match = FAILURE_OUTPUT_SECTION_RE.search(raw)
+    if match:
+        return strip_outer_markdown_fence(match.group(1))
+    return raw
+
+
+def sanitize_runtime_failure_line(value: str) -> str:
+    line = ANSI_ESCAPE_RE.sub("", str(value or ""))
+    line = SECRET_TOKEN_RE.sub("sk-***", line)
+    line = re.sub(r",?\s*url:\s*\S+", "", line, flags=re.IGNORECASE)
+    line = re.sub(r",?\s*cf-ray:\s*\S+", "", line, flags=re.IGNORECASE)
+    line = re.sub(r"\s+", " ", line).strip()
+    return line
+
+
+def shorten_runtime_failure(value: str, limit: int = 240) -> str:
+    clean = sanitize_runtime_failure_line(value)
+    if len(clean) <= limit:
+        return clean
+    return clean[: max(0, limit - 1)].rstrip() + "..."
+
+
+def runtime_failure_candidate_line(output: str) -> str:
+    lines = [sanitize_runtime_failure_line(line) for line in output.splitlines()]
+    lines = [line for line in lines if line]
+    if not lines:
+        return ""
+    important = [
+        line
+        for line in lines
+        if re.search(
+            r"\b(error|failed|unauthorized|unexpected status|timed out|timeout|overloaded|rate limit|service unavailable)\b",
+            line,
+            flags=re.IGNORECASE,
+        )
+    ]
+    return important[-1] if important else ""
+
+
+def runtime_failure_user_message(text: str, runtime: str = "") -> str:
+    output = runtime_failure_output_text(text)
+    clean_text = "\n".join(
+        line for line in (sanitize_runtime_failure_line(line) for line in output.splitlines()) if line
+    )
+    lower = clean_text.lower()
+    runtime_label = runtime or "agent"
+
+    if "system cpu overloaded" in lower:
+        threshold = re.search(
+            r"current:\s*([0-9.]+%?)\s*,\s*threshold:\s*([0-9.]+%?)",
+            clean_text,
+            flags=re.IGNORECASE,
+        )
+        suffix = ""
+        if threshold:
+            suffix = f" (current: {threshold.group(1)}, threshold: {threshold.group(2)})"
+        return f"Runtime provider overloaded (503 Service Unavailable): system CPU exceeded provider threshold{suffix}."
+
+    if "401 unauthorized" in lower or "invalid token" in lower:
+        return "Runtime provider authentication failed (401 Unauthorized): credentials were rejected."
+
+    if "429" in lower or "rate limit" in lower or "too many requests" in lower:
+        return "Runtime provider rate limited the review request."
+
+    if "failed to refresh available models" in lower and "missing field" in lower:
+        return "Runtime provider model-list response did not match the expected schema."
+
+    candidate = runtime_failure_candidate_line(output)
+    status_match = re.search(
+        r"unexpected status\s+(\d{3})\s+([^:,\n]+)(?::\s*(.*))?",
+        candidate,
+        flags=re.IGNORECASE,
+    )
+    if status_match:
+        code = status_match.group(1)
+        label = status_match.group(2).strip()
+        detail = shorten_runtime_failure(status_match.group(3) or "", limit=180)
+        if code in {"500", "502", "503", "504"}:
+            reason = f"Runtime provider returned {code} {label}"
+        else:
+            reason = f"Runtime provider returned {code} {label}"
+        return f"{reason}: {detail}." if detail else f"{reason}."
+
+    if candidate:
+        return f"Runtime `{runtime_label}` failed: {shorten_runtime_failure(candidate)}"
+    return f"Runtime `{runtime_label}` failed. Open the failed run for raw output."
+
+
 def missing_runtime_review(name: str, target_label: str) -> str:
     return f"""# Agent Review
 
@@ -1471,17 +1591,24 @@ Prepared a local task package. `{name}` was unavailable, so no automated review 
 
 
 def runtime_failure_review(name: str, code: int, stderr: str, stdout: str, target_label: str) -> str:
+    output = (stderr or stdout or "No output.").strip()
+    reason = runtime_failure_user_message(output, name)
+    fence = markdown_fence_for_text(output)
     return f"""# Agent Review
 
 ## Summary
 
 Runtime `{name}` exited with status `{code}`. The task package and prompt were created, but the review did not complete successfully.
 
+## Failure Reason
+
+{reason}
+
 ## Failure Output
 
-```text
-{(stderr or stdout or "No output.").strip()}
-```
+{fence}text
+{output}
+{fence}
 
 ## Suggested {target_label} Comment
 
@@ -1813,6 +1940,8 @@ def command_review(args: argparse.Namespace) -> int:
             "verification": "verification-plan.md",
         },
     }
+    if runtime_status == "failed":
+        record["failure_reason"] = runtime_failure_user_message(review, runtime_used)
     write_json(task_dir / "record.json", record)
 
     if getattr(args, "auto_implement", False) and runtime_status == "succeeded":
@@ -1917,6 +2046,8 @@ def command_stale_issue_scan(args: argparse.Namespace) -> int:
             "review": "review.md",
         },
     }
+    if runtime_status == "failed":
+        record["failure_reason"] = runtime_failure_user_message(review, runtime_used)
     write_json(task_dir / "record.json", record)
 
     if runtime_status == "succeeded" and getattr(args, "apply_actions", False):
@@ -2028,6 +2159,8 @@ def command_pr_review(args: argparse.Namespace) -> int:
             "verification": "verification-plan.md",
         },
     }
+    if runtime_status == "failed":
+        record["failure_reason"] = runtime_failure_user_message(review, runtime_used)
     write_json(task_dir / "record.json", record)
 
     if args.post and runtime_status == "succeeded":
@@ -2369,6 +2502,9 @@ def review_status_for_item(
         "current_head_failed": bool(current_failed) and not external_current,
         "failed_at": current_failed[0][1].get("created_at") if current_failed and not external_current else None,
         "failed_runtime_used": current_failed[0][1].get("runtime_used") if current_failed and not external_current else None,
+        "failed_reason": task_failure_reason(current_failed[0][0], current_failed[0][1])
+        if current_failed and not external_current
+        else "",
         "failed_task_id": (current_failed[0][1].get("task_id") or current_failed[0][0].name) if current_failed and not external_current else "",
         "failed_task_dir": str(current_failed[0][0]) if current_failed and not external_current else "",
     }
@@ -2428,6 +2564,38 @@ def latest_pr_review_task_record(repo: str, number: int, head_sha: str = "") -> 
             continue
         return task_dir, record
     return None, {}
+
+
+def task_failure_reason(task_dir: Path | None, record: dict[str, Any]) -> str:
+    stored = str(record.get("failure_reason") or "").strip()
+    if stored:
+        return stored
+    runtime = str(record.get("runtime_used") or record.get("runtime_requested") or "")
+    review_path = task_dir / "review.md" if task_dir else None
+    if review_path and review_path.exists():
+        try:
+            return runtime_failure_user_message(review_path.read_text(encoding="utf-8", errors="replace"), runtime)
+        except OSError:
+            pass
+    raw = str(record.get("runtime_error") or "").strip()
+    if raw:
+        return runtime_failure_user_message(raw, runtime)
+    return ""
+
+
+def latest_pr_review_failure_reason(repo: str, number: int, head_sha: str = "") -> str:
+    task_dir, record = latest_pr_review_task_record(repo, number, head_sha)
+    if not record:
+        return ""
+    return task_failure_reason(task_dir, record)
+
+
+def job_failure_summary(job: WebhookJob, exc: BaseException) -> str:
+    if job.kind == "pr_review":
+        reason = latest_pr_review_failure_reason(f"{job.owner}/{job.repo}", job.number, job.head_sha)
+        if reason:
+            return f"PR review failed: {reason}"
+    return str(exc)
 
 
 def job_retry_count(job_status: dict[str, Any]) -> int:
@@ -2880,7 +3048,8 @@ def task_review_payload(
         suggested = format_pr_comment(review) if record.get("item_type") == "pull_request" else extract_suggested_comment(review)
         comment_body = build_comment_body(record, review, suggested_only=True, max_chars=max_chars)
     else:
-        suggested = failed_task_display_comment(record)
+        failure_reason = task_failure_reason(task_dir, record)
+        suggested = failed_task_display_comment(record, failure_reason=failure_reason)
         comment_body = suggested
     return {
         "task_id": task_dir.name,
@@ -2895,6 +3064,7 @@ def task_review_payload(
         "created_at": record.get("created_at") or "",
         "runtime_used": record.get("runtime_used") or "",
         "runtime_status": record.get("runtime_status") or "",
+        "failure_reason": task_failure_reason(task_dir, record) if not postable else "",
         "automation_decision": record.get("automation_decision") or "",
         "automation_status": record.get("automation_status") or "",
         "triage_scores": record.get("triage_scores") or {},
@@ -2914,12 +3084,15 @@ def task_review_payload(
     }
 
 
-def failed_task_display_comment(record: dict[str, Any]) -> str:
+def failed_task_display_comment(record: dict[str, Any], *, failure_reason: str = "") -> str:
     runtime = str(record.get("runtime_used") or record.get("runtime_requested") or "agent")
+    reason = str(failure_reason or record.get("failure_reason") or "").strip()
+    detail = f"Reason: {reason}\n" if reason else ""
     return (
         "Review job failed before producing a usable comment.\n\n"
         f"Runtime: `{runtime}`\n"
         "Status: `failed`\n\n"
+        f"{detail}"
         "This failed run is kept for debugging and is not postable to Gitea."
     )
 
@@ -5556,14 +5729,14 @@ class WebhookBridge:
                     job.dedupe_key,
                     TRANSIENT_JOB_RETRY_LIMIT,
                 ):
-                    summary = f"{retry_reason}; queued auto retry: {str(exc)[:420]}"
+                    summary = f"{retry_reason}; queued auto retry: {job_failure_summary(job, exc)[:420]}"
                     logging.warning("retrying job kind=%s key=%s reason=%s error=%s", job.kind, job.dedupe_key, retry_reason, exc)
                     self.store.update_delivery(job.delivery_id, "queued", summary)
                     self.jobs.put(job)
                     return
                 logging.exception("failed job kind=%s key=%s", job.kind, job.dedupe_key)
                 self.store.update_job(job.dedupe_key, "failed")
-                self.store.update_delivery(job.delivery_id, "failed", str(exc)[:500])
+                self.store.update_delivery(job.delivery_id, "failed", job_failure_summary(job, exc)[:500])
             finally:
                 self._clear_running_job(job.dedupe_key)
 
@@ -6628,6 +6801,9 @@ class WebhookBridge:
                 args.component = str(component)
             exit_code = command_pr_review(args)
             if exit_code:
+                reason = latest_pr_review_failure_reason(args.repo, job.number, job.head_sha)
+                if reason:
+                    raise DemoError(f"PR review failed: {reason}")
                 raise DemoError(f"PR review job failed with exit code {exit_code}")
             return
         raise DemoError(f"unknown webhook job kind {job.kind}")
