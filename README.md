@@ -278,7 +278,7 @@ By default successful PR reviews auto-post their normalized review comment. Issu
 
 The `serve` process keeps the webhook tunnel up, but automation is driven by one local polling loop while webhooks are disabled:
 
-- Unified monitor poll, default 60s: scans all configured repos for open issues/PRs, stores snapshots and relationship labels, queues newly assigned issue triage, queues newly requested PR reviews or new PR heads, and tracks delegate comments for manual dashboard action.
+- Unified monitor poll, default 60s: stores snapshots and relationship labels, queues newly assigned issue triage, queues newly requested PR reviews or new PR heads, and tracks delegate comments for manual dashboard action. Small explicit repo lists use the direct per-repo scan. Org-wide monitors use Gitea owner search for assigned/created issues, assigned/created PRs, and review-requested PRs, then refresh only already tracked related items.
 
 Local SQLite keeps snapshots for open tracked items and marks closed/merged items inactive so they are hidden from the main board. Task packages, job records, and tracking history are preserved for audit/debugging. In-flight PR reviews re-check the PR head before posting; if the head changed while the agent was reviewing, the stale result is kept locally but not posted. PR review packages fetch current PR metadata, all PR conversation comments, all PR review comments, and the full Gitea diff by default. Request-changes reviews are not auto-posted when the review admits it used truncated, unavailable, or unverified diff evidence.
 

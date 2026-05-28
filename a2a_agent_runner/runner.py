@@ -580,6 +580,109 @@ def list_open_issues(repo: str, limit: int, timeout: int = 30) -> list[dict[str,
     return [item for item in data if isinstance(item, dict)]
 
 
+def search_gitea_items(
+    owner: str,
+    item_kind: str,
+    *,
+    limit: int,
+    timeout: int = 30,
+    state: str = "open",
+    assigned: bool = False,
+    created: bool = False,
+    review_requested: bool = False,
+    keyword: str = "",
+) -> list[dict[str, Any]]:
+    total_limit = max(1, int(limit or 1))
+    page_size = min(total_limit, 50)
+    collected: list[dict[str, Any]] = []
+    filters = ",".join(
+        name
+        for name, enabled in (
+            ("assigned", assigned),
+            ("created", created),
+            ("review_requested", review_requested),
+            ("keyword", bool(keyword)),
+        )
+        if enabled
+    ) or "none"
+    page = 1
+    while len(collected) < total_limit:
+        request_limit = min(page_size, total_limit - len(collected))
+        params: dict[str, str] = {
+            "owner": owner,
+            "state": state,
+            "type": item_kind,
+            "limit": str(request_limit),
+            "page": str(page),
+        }
+        if assigned:
+            params["assigned"] = "true"
+        if created:
+            params["created"] = "true"
+        if review_requested:
+            params["review_requested"] = "true"
+        if keyword:
+            params["q"] = keyword
+        endpoint = "/repos/issues/search?" + urllib.parse.urlencode(params)
+        result = run_command(["tea", "api", endpoint], cwd=command_cwd(), timeout=timeout)
+        if result.returncode != 0:
+            details = (result.stderr or result.stdout).strip()
+            raise DemoError(f"failed to search {item_kind} for owner {owner} filters={filters}: {details}")
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            raise DemoError(f"tea returned non-JSON search output for {item_kind} from {owner}") from exc
+        if not isinstance(data, list):
+            raise DemoError(f"unexpected tea search JSON shape for {item_kind} from {owner}")
+        page_items = [item for item in data if isinstance(item, dict)]
+        collected.extend(page_items)
+        if len(page_items) < request_limit:
+            break
+        page += 1
+    return collected
+
+
+def repo_slug_from_search_item(item: dict[str, Any]) -> str:
+    repository = item.get("repository")
+    if isinstance(repository, dict):
+        full_name = first_text(repository.get("full_name"))
+        if full_name:
+            return full_name
+        owner_value = repository.get("owner")
+        if isinstance(owner_value, dict):
+            owner = first_text(owner_value.get("login"), owner_value.get("username"), owner_value.get("name"))
+        else:
+            owner = first_text(owner_value)
+        name = first_text(repository.get("name"))
+        if owner and name:
+            return f"{owner}/{name}"
+    for key in ("html_url", "url"):
+        raw_url = first_text(item.get(key))
+        if not raw_url:
+            continue
+        parsed = urllib.parse.urlparse(raw_url)
+        parts = [part for part in parsed.path.split("/") if part]
+        if len(parts) >= 2:
+            return f"{parts[0]}/{parts[1]}"
+    return ""
+
+
+def dedupe_search_items(items: list[dict[str, Any]]) -> list[tuple[str, int]]:
+    seen: set[tuple[str, int]] = set()
+    deduped: list[tuple[str, int]] = []
+    for item in items:
+        repo = repo_slug_from_search_item(item)
+        number = first_int(item.get("number"), item.get("index"))
+        if not repo or not number:
+            continue
+        key = (repo, number)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(key)
+    return deduped
+
+
 def list_owner_repos(owner: str, limit: int = 200, timeout: int = 30) -> list[dict[str, Any]]:
     result = run_command(
         [
@@ -4972,6 +5075,24 @@ class WebhookStateStore:
             ).fetchall()
         return [int(row[0]) for row in rows]
 
+    def tracked_item_refs(self, item_type: str, state: str | None = None) -> list[tuple[str, int]]:
+        params: list[Any] = [item_type]
+        where = "WHERE item_type = ?"
+        if state:
+            where += " AND lower(state) = ?"
+            params.append(state.lower())
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT repo, number
+                FROM tracked_items
+                {where}
+                ORDER BY repo ASC, number DESC
+                """,
+                params,
+            ).fetchall()
+        return [(str(row[0] or ""), int(row[1] or 0)) for row in rows if row[0] and row[1]]
+
     def issue_linked_pr_index(self) -> dict[tuple[str, int], list[dict[str, Any]]]:
         with self.connect() as conn:
             rows = conn.execute(
@@ -5550,10 +5671,216 @@ class WebhookBridge:
     def monitor_once(self, *, queue_actions: bool = True) -> list[str]:
         return self.discovery_once(queue_actions=queue_actions)
 
+    def _monitor_repo_groups(self) -> dict[str, set[str]]:
+        groups: dict[str, set[str]] = {}
+        for repo_slug_value in self.config.monitor_repos:
+            try:
+                owner, _ = split_repo_slug(repo_slug_value)
+            except DemoError:
+                continue
+            groups.setdefault(owner, set()).add(repo_slug_value)
+        return groups
+
+    def _use_owner_search_discovery(self) -> bool:
+        return len(self.config.monitor_repos) > 5 and bool(self._monitor_repo_groups())
+
+    def _snapshot_related_to_me(self, snapshot: dict[str, Any] | None) -> bool:
+        if not snapshot:
+            return False
+        return bool(
+            snapshot_relationships(
+                snapshot,
+                self.config.username,
+                aliases=self.config.username_aliases,
+                own_branch_prefixes=self.config.own_branch_prefixes,
+            ).get("related_to_me")
+        )
+
     def discovery_once(self, *, queue_actions: bool = True) -> list[str]:
+        if self._use_owner_search_discovery():
+            try:
+                return self._owner_search_discovery_once(queue_actions=queue_actions)
+            except Exception as exc:
+                logging.warning("owner search discovery failed; falling back to per-repo discovery: %s", exc)
         events: list[str] = []
         for repo_slug_value in self.config.monitor_repos:
             events.extend(self._discovery_repo(repo_slug_value, queue_actions=queue_actions))
+        return events
+
+    def _owner_search_discovery_once(self, *, queue_actions: bool = True) -> list[str]:
+        events: list[str] = []
+        expected_usernames = username_candidates(self.config.username, self.config.username_aliases)
+        pending_issue_analysis: list[tuple[str, int, dict[str, Any], dict[str, Any]]] = []
+        seen_issues: set[tuple[str, int]] = set()
+        seen_prs: set[tuple[str, int]] = set()
+        groups = self._monitor_repo_groups()
+
+        for owner, allowed_repos in groups.items():
+            issue_refs = self._owner_search_refs(owner, "issues", allowed_repos)
+            for repo_slug_value, number in issue_refs:
+                seen_issues.add((repo_slug_value, number))
+                self._refresh_issue_tracking(
+                    repo_slug_value,
+                    number,
+                    expected_usernames,
+                    pending_issue_analysis,
+                    events,
+                    queue_actions=queue_actions,
+                )
+
+            pr_refs = self._owner_search_refs(owner, "pulls", allowed_repos)
+            for repo_slug_value, number in pr_refs:
+                seen_prs.add((repo_slug_value, number))
+                events.extend(
+                    self._refresh_pr_tracking(
+                        repo_slug_value,
+                        number,
+                        expected_usernames,
+                        queue_actions=queue_actions,
+                        context="owner-search",
+                        event_type="pr_review_discovery",
+                        delivery_prefix="discovery",
+                    )
+                )
+
+        allowed = set(self.config.monitor_repos)
+        for repo_slug_value, number in self.store.tracked_item_refs("pull_request", "open"):
+            if repo_slug_value not in allowed or (repo_slug_value, number) in seen_prs:
+                continue
+            previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "pull_request", number)
+            if not self._snapshot_related_to_me(previous_snapshot):
+                continue
+            seen_prs.add((repo_slug_value, number))
+            events.extend(
+                self._refresh_pr_tracking(
+                    repo_slug_value,
+                    number,
+                    expected_usernames,
+                    queue_actions=queue_actions,
+                    context="tracked",
+                    event_type="pr_review_discovery",
+                    delivery_prefix="discovery",
+                )
+            )
+        for repo_slug_value, number in self.store.tracked_item_refs("issue", "open"):
+            if repo_slug_value not in allowed or (repo_slug_value, number) in seen_issues:
+                continue
+            previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "issue", number)
+            if not self._snapshot_related_to_me(previous_snapshot):
+                continue
+            seen_issues.add((repo_slug_value, number))
+            self._refresh_issue_tracking(
+                repo_slug_value,
+                number,
+                expected_usernames,
+                pending_issue_analysis,
+                events,
+                queue_actions=queue_actions,
+            )
+
+        self._process_pending_issue_analysis(pending_issue_analysis, events)
+        return events
+
+    def _owner_search_refs(self, owner: str, item_kind: str, allowed_repos: set[str]) -> list[tuple[str, int]]:
+        searches: list[dict[str, bool]] = [{"assigned": True}, {"created": True}]
+        if item_kind == "pulls":
+            searches.append({"review_requested": True})
+        items: list[dict[str, Any]] = []
+        search_limit = min(max(self.config.monitor_limit * max(len(allowed_repos), 1), 50), 500)
+        for flags in searches:
+            items.extend(
+                search_gitea_items(
+                    owner,
+                    item_kind,
+                    limit=search_limit,
+                    timeout=10,
+                    assigned=flags.get("assigned", False),
+                    created=flags.get("created", False),
+                    review_requested=flags.get("review_requested", False),
+                )
+            )
+        return [(repo, number) for repo, number in dedupe_search_items(items) if repo in allowed_repos]
+
+    def _refresh_issue_tracking(
+        self,
+        repo_slug_value: str,
+        number: int,
+        expected_usernames: tuple[str, ...],
+        pending_issue_analysis: list[tuple[str, int, dict[str, Any], dict[str, Any]]],
+        events: list[str],
+        *,
+        queue_actions: bool,
+    ) -> None:
+        try:
+            issue_data = fetch_issue(str(number), repo_slug_value, timeout=10)
+            previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "issue", number)
+            snapshot = annotate_snapshot_relationship_labels(
+                build_issue_snapshot(repo_slug_value, issue_data),
+                self.config.username,
+                aliases=self.config.username_aliases,
+                own_branch_prefixes=self.config.own_branch_prefixes,
+            )
+            summary = self.store.record_tracking_snapshot(snapshot)
+            if summary:
+                events.append(f"{repo_slug_value} issue#{number}: {summary}")
+            if queue_actions and issue_newly_assigned_to_user(previous_snapshot, snapshot, expected_usernames):
+                pending_issue_analysis.append((repo_slug_value, number, issue_data, snapshot))
+        except Exception as exc:
+            logging.warning("discovery issue fetch failed repo=%s issue=%s error=%s", repo_slug_value, number, exc)
+
+    def _refresh_pr_tracking(
+        self,
+        repo_slug_value: str,
+        number: int,
+        expected_usernames: tuple[str, ...],
+        *,
+        queue_actions: bool,
+        context: str,
+        event_type: str,
+        delivery_prefix: str,
+    ) -> list[str]:
+        events: list[str] = []
+        try:
+            pr_data = fetch_pr(str(number), repo_slug_value, timeout=10)
+            previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "pull_request", number)
+            review_comments = fetch_pr_review_comments_or_previous(
+                str(number),
+                repo_slug_value,
+                previous_snapshot,
+                timeout=10,
+                context=context,
+            )
+            snapshot = annotate_snapshot_relationship_labels(
+                build_pr_snapshot(repo_slug_value, pr_data, review_comments),
+                self.config.username,
+                aliases=self.config.username_aliases,
+                own_branch_prefixes=self.config.own_branch_prefixes,
+            )
+            summary = self.store.record_tracking_snapshot(snapshot)
+            if summary:
+                events.append(f"{repo_slug_value} PR#{number}: {summary}")
+            current_relationships = snapshot_relationships(
+                snapshot,
+                self.config.username,
+                aliases=self.config.username_aliases,
+                own_branch_prefixes=self.config.own_branch_prefixes,
+            )
+            events.extend(
+                self._handle_pr_snapshot_actions(
+                    repo_slug_value,
+                    number,
+                    previous_snapshot,
+                    snapshot,
+                    pr_data,
+                    current_relationships,
+                    expected_usernames,
+                    queue_actions=queue_actions,
+                    event_type=event_type,
+                    delivery_prefix=delivery_prefix,
+                )
+            )
+        except Exception as exc:
+            logging.warning("%s PR fetch failed repo=%s pr=%s error=%s", context, repo_slug_value, number, exc)
         return events
 
     def active_pr_once(self, *, queue_actions: bool = True) -> list[str]:
@@ -5603,10 +5930,97 @@ class WebhookBridge:
                 logging.warning("issue PR link check failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
         return by_issue
 
+    def _discover_open_pr_links_for_issue(self, repo_slug_value: str, issue_number: int) -> list[dict[str, Any]]:
+        try:
+            owner, _ = split_repo_slug(repo_slug_value)
+            search_items = search_gitea_items(
+                owner,
+                "pulls",
+                limit=max(self.config.monitor_limit, 50),
+                timeout=10,
+                keyword=f"#{issue_number}",
+            )
+        except Exception as exc:
+            logging.warning("issue PR link search failed repo=%s issue=%s error=%s", repo_slug_value, issue_number, exc)
+            return []
+        allowed_repos = set(self.config.monitor_repos)
+        links: list[dict[str, Any]] = []
+        for pr_repo, pr_number in dedupe_search_items(search_items):
+            if allowed_repos and pr_repo not in allowed_repos:
+                continue
+            if pr_repo != repo_slug_value and not is_central_issue_repo(repo_slug_value):
+                continue
+            try:
+                pr_data = fetch_pr(str(pr_number), pr_repo, timeout=10)
+                snapshot = annotate_snapshot_relationship_labels(
+                    build_pr_snapshot(pr_repo, pr_data, []),
+                    self.config.username,
+                    aliases=self.config.username_aliases,
+                    own_branch_prefixes=self.config.own_branch_prefixes,
+                )
+                if issue_number not in [int(value or 0) for value in snapshot.get("linked_issues") or []]:
+                    continue
+                self.store.record_tracking_snapshot(snapshot)
+                links.append(
+                    {
+                        "repo": pr_repo,
+                        "number": int(snapshot.get("number") or pr_number),
+                        "state": str(snapshot.get("state") or "open"),
+                        "title": str(snapshot.get("title") or ""),
+                        "url": str(snapshot.get("url") or ""),
+                        "merged_at": str(snapshot.get("merged_at") or ""),
+                        "closed_at": str(snapshot.get("closed_at") or ""),
+                    }
+                )
+            except Exception as exc:
+                logging.warning("issue PR link fetch failed repo=%s pr=%s error=%s", pr_repo, pr_number, exc)
+        return links
+
+    def _process_pending_issue_analysis(
+        self,
+        pending_issue_analysis: list[tuple[str, int, dict[str, Any], dict[str, Any]]],
+        events: list[str],
+    ) -> None:
+        if not pending_issue_analysis:
+            return
+        issue_linked_prs = self.store.issue_linked_pr_index()
+        for repo_slug_value, number, issue_data, snapshot in pending_issue_analysis:
+            linked_prs = issue_linked_prs.get((repo_slug_value, number), [])
+            enriched_snapshot = enrich_issue_snapshot_with_tracked_prs(dict(snapshot), linked_prs)
+            skip_reason = issue_auto_analysis_skip_reason(
+                enriched_snapshot,
+                self.config.username,
+                aliases=self.config.username_aliases,
+                own_branch_prefixes=self.config.own_branch_prefixes,
+            )
+            if not skip_reason and not linked_prs and self._use_owner_search_discovery():
+                linked_prs = self._discover_open_pr_links_for_issue(repo_slug_value, number)
+                enriched_snapshot = enrich_issue_snapshot_with_tracked_prs(dict(snapshot), linked_prs)
+                skip_reason = issue_auto_analysis_skip_reason(
+                    enriched_snapshot,
+                    self.config.username,
+                    aliases=self.config.username_aliases,
+                    own_branch_prefixes=self.config.own_branch_prefixes,
+                )
+            if skip_reason:
+                events.append(f"{repo_slug_value} issue#{number}: skipped automatic issue analysis: {skip_reason}")
+                continue
+            response = self._queue_issue_from_issue_data(
+                repo_slug_value,
+                issue_data,
+                event_type="issue_discovery",
+                delivery_prefix="issue",
+                snapshot=enriched_snapshot,
+            )
+            if response.status_code == 202:
+                events.append(f"{repo_slug_value} issue#{number}: queued assigned issue triage")
+            elif response.body.get("reason"):
+                events.append(f"{repo_slug_value} issue#{number}: skipped automatic issue analysis: {response.body.get('reason')}")
+
     def _discovery_repo(self, repo_slug_value: str, *, queue_actions: bool = True) -> list[str]:
         events: list[str] = []
         expected_usernames = username_candidates(self.config.username, self.config.username_aliases)
-        pending_issue_analysis: list[tuple[int, dict[str, Any], dict[str, Any]]] = []
+        pending_issue_analysis: list[tuple[str, int, dict[str, Any], dict[str, Any]]] = []
         try:
             issue_items = list_open_issues(repo_slug_value, self.config.monitor_limit, timeout=10)
         except Exception as exc:
@@ -5618,22 +6032,14 @@ class WebhookBridge:
             if not number:
                 continue
             open_issue_numbers.add(number)
-            try:
-                issue_data = fetch_issue(str(number), repo_slug_value, timeout=10)
-                previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "issue", number)
-                snapshot = annotate_snapshot_relationship_labels(
-                    build_issue_snapshot(repo_slug_value, issue_data),
-                    self.config.username,
-                    aliases=self.config.username_aliases,
-                    own_branch_prefixes=self.config.own_branch_prefixes,
-                )
-                summary = self.store.record_tracking_snapshot(snapshot)
-                if summary:
-                    events.append(f"{repo_slug_value} issue#{number}: {summary}")
-                if queue_actions and issue_newly_assigned_to_user(previous_snapshot, snapshot, expected_usernames):
-                    pending_issue_analysis.append((number, issue_data, snapshot))
-            except Exception as exc:
-                logging.warning("discovery issue fetch failed repo=%s issue=%s error=%s", repo_slug_value, number, exc)
+            self._refresh_issue_tracking(
+                repo_slug_value,
+                number,
+                expected_usernames,
+                pending_issue_analysis,
+                events,
+                queue_actions=queue_actions,
+            )
         events.extend(self._reconcile_tracked_issues(repo_slug_value, open_issue_numbers))
 
         try:
@@ -5647,45 +6053,17 @@ class WebhookBridge:
             if not number:
                 continue
             open_pr_numbers.add(number)
-            try:
-                pr_data = fetch_pr(str(number), repo_slug_value, timeout=10)
-                previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "pull_request", number)
-                review_comments = fetch_pr_review_comments_or_previous(
-                    str(number),
-                    repo_slug_value,
-                    previous_snapshot,
-                    timeout=10,
-                    context="discovery",
-                )
-                snapshot = annotate_snapshot_relationship_labels(
-                    build_pr_snapshot(repo_slug_value, pr_data, review_comments),
-                    self.config.username,
-                    aliases=self.config.username_aliases,
-                    own_branch_prefixes=self.config.own_branch_prefixes,
-                )
-                summary = self.store.record_tracking_snapshot(snapshot)
-                if summary:
-                    events.append(f"{repo_slug_value} PR#{number}: {summary}")
-                current_relationships = snapshot_relationships(
-                    snapshot,
-                    self.config.username,
-                    aliases=self.config.username_aliases,
-                    own_branch_prefixes=self.config.own_branch_prefixes,
-                )
-                events.extend(self._handle_pr_snapshot_actions(
+            events.extend(
+                self._refresh_pr_tracking(
                     repo_slug_value,
                     number,
-                    previous_snapshot,
-                    snapshot,
-                    pr_data,
-                    current_relationships,
                     expected_usernames,
                     queue_actions=queue_actions,
+                    context="discovery",
                     event_type="pr_review_discovery",
                     delivery_prefix="discovery",
-                ))
-            except Exception as exc:
-                logging.warning("discovery PR fetch failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
+                )
+            )
         events.extend(
             self._reconcile_tracked_prs(
                 repo_slug_value,
@@ -5694,33 +6072,7 @@ class WebhookBridge:
                 queue_actions=queue_actions,
             )
         )
-        if pending_issue_analysis:
-            issue_linked_prs = self.store.issue_linked_pr_index()
-            for number, issue_data, snapshot in pending_issue_analysis:
-                enriched_snapshot = enrich_issue_snapshot_with_tracked_prs(
-                    dict(snapshot),
-                    issue_linked_prs.get((repo_slug_value, number), []),
-                )
-                skip_reason = issue_auto_analysis_skip_reason(
-                    enriched_snapshot,
-                    self.config.username,
-                    aliases=self.config.username_aliases,
-                    own_branch_prefixes=self.config.own_branch_prefixes,
-                )
-                if skip_reason:
-                    events.append(f"{repo_slug_value} issue#{number}: skipped automatic issue analysis: {skip_reason}")
-                    continue
-                response = self._queue_issue_from_issue_data(
-                    repo_slug_value,
-                    issue_data,
-                    event_type="issue_discovery",
-                    delivery_prefix="issue",
-                    snapshot=enriched_snapshot,
-                )
-                if response.status_code == 202:
-                    events.append(f"{repo_slug_value} issue#{number}: queued assigned issue triage")
-                elif response.body.get("reason"):
-                    events.append(f"{repo_slug_value} issue#{number}: skipped automatic issue analysis: {response.body.get('reason')}")
+        self._process_pending_issue_analysis(pending_issue_analysis, events)
         return events
 
     def _stale_issues_repo(self, repo_slug_value: str) -> list[str]:
@@ -5914,45 +6266,17 @@ class WebhookBridge:
         expected_usernames = username_candidates(self.config.username, self.config.username_aliases)
         tracked_open_numbers = self.store.tracked_item_numbers(repo_slug_value, "pull_request", "open")
         for number in tracked_open_numbers:
-            try:
-                pr_data = fetch_pr(str(number), repo_slug_value, timeout=10)
-                previous_snapshot = self.store.tracking_snapshot(repo_slug_value, "pull_request", number)
-                review_comments = fetch_pr_review_comments_or_previous(
-                    str(number),
-                    repo_slug_value,
-                    previous_snapshot,
-                    timeout=10,
-                    context="active",
-                )
-                snapshot = annotate_snapshot_relationship_labels(
-                    build_pr_snapshot(repo_slug_value, pr_data, review_comments),
-                    self.config.username,
-                    aliases=self.config.username_aliases,
-                    own_branch_prefixes=self.config.own_branch_prefixes,
-                )
-                current_relationships = snapshot_relationships(
-                    snapshot,
-                    self.config.username,
-                    aliases=self.config.username_aliases,
-                    own_branch_prefixes=self.config.own_branch_prefixes,
-                )
-                summary = self.store.record_tracking_snapshot(snapshot)
-                if summary:
-                    events.append(f"{repo_slug_value} PR#{number}: {summary}")
-                events.extend(self._handle_pr_snapshot_actions(
+            events.extend(
+                self._refresh_pr_tracking(
                     repo_slug_value,
                     number,
-                    previous_snapshot,
-                    snapshot,
-                    pr_data,
-                    current_relationships,
                     expected_usernames,
                     queue_actions=queue_actions,
+                    context="active",
                     event_type="pr_review_active",
                     delivery_prefix="active",
-                ))
-            except Exception as exc:
-                logging.warning("active PR fetch failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
+                )
+            )
         return events
 
     def _monitor_repo(self, repo_slug_value: str, *, queue_actions: bool = True) -> list[str]:
