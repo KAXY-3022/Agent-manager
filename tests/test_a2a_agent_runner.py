@@ -3739,6 +3739,26 @@ Old reviewer comment that must not become a draft.
         self.assertIn('btn.textContent = original || "Refresh";', handler)
         self.assertNotIn("Scanning...", handler)
 
+    def test_dashboard_has_isolated_demo_mode(self):
+        ui = a2a_runner.load_ui_html()
+
+        self.assertIn('id="demo-toolbar"', ui)
+        self.assertIn('data-demo-add="auto-review"', ui)
+        self.assertIn('data-demo-add="issue-assessment"', ui)
+        self.assertIn("const DEMO_MODE", ui)
+        self.assertIn('window.location.pathname === "/demo"', ui)
+        self.assertIn("DEMO_STORAGE_KEY", ui)
+        self.assertIn("demoApi(path, options)", ui)
+        self.assertIn("Local mock data only. No Gitea, jobs, or runner state are touched.", ui)
+
+    def test_ui_handler_serves_demo_dashboard_route(self):
+        import inspect
+
+        handler_source = inspect.getsource(a2a_runner.make_ui_handler)
+
+        self.assertIn('"/demo"', handler_source)
+        self.assertIn("load_ui_html()", handler_source)
+
     def test_dashboard_toast_uses_top_layer_and_compact_job_target(self):
         ui = a2a_runner.load_ui_html()
         css_start = ui.index(".toast {")

@@ -35,6 +35,14 @@ Open the dashboard:
 http://127.0.0.1:48730
 ```
 
+For demos, open the isolated mock-data dashboard:
+
+```text
+http://127.0.0.1:48730/demo
+```
+
+The demo page uses browser-local fake items and intercepts dashboard API calls in the frontend. It does not touch Gitea, local runner state, or background jobs.
+
 Use the URL printed by ngrok plus `/gitea` as the Gitea webhook URL if you are testing webhook delivery. Webhook-triggered automation is disabled by default; polling and dashboard actions are the normal workflow.
 
 ## Scope
@@ -361,6 +369,8 @@ Open:
 ```text
 http://127.0.0.1:48730
 ```
+
+Use `http://127.0.0.1:48730/demo` when you need a presentation-safe dashboard with internal fake items. The page reuses the real frontend and stores demo state only in browser local storage.
 
 The dashboard follows the same observability shape as Symphony's local UI: state summaries, tracked work, change timeline, jobs, deliveries, task packages, and explicit local actions. It binds to `127.0.0.1` by default and does not expose secrets.
 

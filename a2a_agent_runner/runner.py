@@ -7280,7 +7280,7 @@ def make_ui_handler(config: WebhookConfig, bridge: WebhookBridge | None = None):
             parsed = urllib.parse.urlparse(self.path)
             query = urllib.parse.parse_qs(parsed.query)
             try:
-                if parsed.path == "/":
+                if parsed.path in {"/", "/demo"}:
                     self._send(200, load_ui_html().encode("utf-8"), "text/html; charset=utf-8")
                     return
                 if parsed.path == "/api/status":

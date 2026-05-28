@@ -448,6 +448,49 @@
     .monitor-switch.paused .monitor-switch-text {
       color: var(--warn);
     }
+    .demo-toolbar[hidden] {
+      display: none !important;
+    }
+    .demo-toolbar {
+      flex: 0 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 12px 22px 0;
+      padding: 10px 12px;
+      border: 1px solid color-mix(in srgb, var(--accent-2) 35%, var(--line));
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--accent-2) 10%, var(--panel));
+      box-shadow: var(--shadow-tight);
+    }
+    .demo-toolbar-copy {
+      display: grid;
+      gap: 2px;
+      min-width: 180px;
+    }
+    .demo-toolbar-copy strong {
+      font-size: 12px;
+      font-weight: 900;
+      color: var(--ink);
+    }
+    .demo-toolbar-copy span {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 650;
+    }
+    .demo-toolbar-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+    .demo-mode .brand p::after {
+      content: " · demo";
+      color: var(--accent);
+      font-weight: 850;
+    }
     .grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(140px, 1fr));
@@ -2557,6 +2600,22 @@
         </div>
       </div>
 
+      <div class="demo-toolbar" id="demo-toolbar" hidden>
+        <div class="demo-toolbar-copy">
+          <strong>Demo sandbox</strong>
+          <span>Local mock data only. No Gitea, jobs, or runner state are touched.</span>
+        </div>
+        <div class="demo-toolbar-actions">
+          <button class="btn" type="button" data-demo-add="auto-review">Queued review</button>
+          <button class="btn" type="button" data-demo-add="running-review">Running review</button>
+          <button class="btn" type="button" data-demo-add="draft-ready">Draft ready</button>
+          <button class="btn" type="button" data-demo-add="failed-review">Failed review</button>
+          <button class="btn" type="button" data-demo-add="own-feedback">Own PR feedback</button>
+          <button class="btn" type="button" data-demo-add="issue-assessment">Issue assessment</button>
+          <button class="btn danger" type="button" id="demo-reset">Reset demo</button>
+        </div>
+      </div>
+
       <section id="board" class="view">
         <div class="board-stats">
           <div class="board-stat" style="--stat-glow: rgba(96, 165, 250, .16)"><div class="board-stat-label">Total PRs</div><div class="board-stat-value"><span id="stat-total-prs">0</span><small>active</small></div><div class="board-stat-note" id="stat-total-prs-note">0 waiting in WIP</div></div>
@@ -2688,6 +2747,8 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
   <script>
     const state = { view: "board", itemFilter: "", stateFilter: "open", relationFilter: "", boardRelationFilter: "related", userNames: [], tasks: [], selectedDraftTask: "", loadedDraftRef: "", loadedDraftTask: null, selectedAttentionKey: "", attentionKeys: [], draftDirty: false, draftLoadSeq: 0, draftLoading: false };
+    const DEMO_MODE = window.location.pathname === "/demo" || new URLSearchParams(window.location.search).get("demo") === "1";
+    const DEMO_STORAGE_KEY = "a2a-runner-demo-state-v1";
     const boardColumns = [
       {id:"wip", title:"WIP"},
       {id:"under_review", title:"Under Review"},
@@ -2695,6 +2756,11 @@
       {id:"reviewed", title:"Reviewed"}
     ];
     const $ = (id) => document.getElementById(id);
+    function applyDemoMode() {
+      document.body.classList.toggle("demo-mode", DEMO_MODE);
+      const toolbar = $("demo-toolbar");
+      if (toolbar) toolbar.hidden = !DEMO_MODE;
+    }
     const preferredTheme = () => localStorage.getItem("a2a-runner-theme") || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
     const preferredSidebarCollapsed = () => localStorage.getItem("a2a-runner-sidebar-collapsed") === "1";
     function applyTheme(theme) {
@@ -2740,6 +2806,7 @@
     }
     applyTheme(preferredTheme());
     applySidebarCollapsed(preferredSidebarCollapsed());
+    applyDemoMode();
     const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     const markdownInline = (value) => {
       const codeTokens = [];
@@ -3619,7 +3686,507 @@
       requestAnimationFrame(() => t.classList.add("show"));
       toastTimer = window.setTimeout(() => t.classList.remove("show"), 4200);
     };
+    const clone = (value) => JSON.parse(JSON.stringify(value));
+    const demoTime = (minutesAgo = 0) => new Date(Date.now() - minutesAgo * 60000).toISOString();
+    const demoShortTime = (minutesAgo = 0) => demoTime(minutesAgo).replace("T", " ").slice(0, 19);
+    const demoHash = (number, suffix = "") => `${String(number).padStart(3, "0")}deaf${suffix || "cafe"}${String(number).padStart(3, "0")}`.slice(0, 40);
+    const demoKey = (repo, type, number) => `${repo}:${type}:${number}`;
+    const demoJobKey = (repo, number, headSha) => `${repo}#${number}@${headSha}`;
+    const demoStatusCounts = (values) => values.reduce((acc, value) => {
+      const key = String(value.status || "unknown");
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    function demoPr(number, scenario, overrides = {}) {
+      const repo = overrides.repo || "K2Lab/moras-console";
+      const headSha = overrides.headSha || demoHash(number, scenario.replace(/[^a-z]/g, ""));
+      const baseTime = overrides.minutesAgo == null ? 12 : overrides.minutesAgo;
+      const rel = {
+        created_by_me: false,
+        assigned_to_me: false,
+        review_requested_from_me: false,
+        participating: false,
+        related_to_me: true,
+        ...(overrides.relationships || {})
+      };
+      const labels = [];
+      if (rel.created_by_me) labels.push("created");
+      if (rel.review_requested_from_me) labels.push("review");
+      if (rel.assigned_to_me) labels.push("assigned");
+      if (rel.participating) labels.push("participating");
+      if (!labels.length) labels.push("related");
+      const job = overrides.job_status || {};
+      const review = overrides.review_status || {};
+      const requestedReviewers = rel.review_requested_from_me ? ["Zang.YanYu"] : [];
+      const prAction = overrides.pr_review_action || (
+        rel.created_by_me
+          ? {available: false, reason: "PR is authored by you", head_sha: headSha}
+          : job.active || ["queued", "running"].includes(String(job.status || "").toLowerCase())
+            ? {available: false, reason: `review job already ${String(job.status || "queued").toLowerCase()}`, head_sha: headSha, job_status: job.status || "queued"}
+            : review.reviewed && !review.stale
+              ? {available: false, reason: "current head already reviewed", head_sha: headSha}
+              : (rel.review_requested_from_me || rel.assigned_to_me)
+                ? {available: true, reason: "review requested", head_sha: headSha, dedupe_key: demoJobKey(repo, number, headSha)}
+                : {available: false, reason: "review is not requested from you", head_sha: headSha}
+      );
+      return {
+        changed_at: demoShortTime(baseTime),
+        repo,
+        item_type: "pull_request",
+        number,
+        title: overrides.title || "Demo PR",
+        url: `https://git.k2lab.ai/${repo}/pulls/${number}`,
+        state: "open",
+        author: overrides.author || (rel.created_by_me ? "Zang.YanYu" : "Other.User"),
+        relationship_labels: labels,
+        relationships: rel,
+        snapshot: {
+          repo,
+          item_type: "pull_request",
+          number,
+          title: overrides.title || "Demo PR",
+          url: `https://git.k2lab.ai/${repo}/pulls/${number}`,
+          state: "open",
+          author: overrides.author || (rel.created_by_me ? "Zang.YanYu" : "Other.User"),
+          updated: demoTime(baseTime),
+          head: overrides.head || `demo/${scenario}-${number}`,
+          head_sha: headSha,
+          head_changed_at: demoTime(baseTime + 4),
+          requested_reviewers: requestedReviewers,
+          assignees: rel.assigned_to_me ? ["Zang.YanYu"] : [],
+          reviews: overrides.reviews || [],
+          comments: overrides.comments || [],
+          review_comments: overrides.review_comments || [],
+          linked_issues: overrides.linked_issues || [number - 700],
+          labels: overrides.labels || []
+        },
+        review_status: {
+          state: "",
+          label: "",
+          reviewed: false,
+          stale: false,
+          posted: false,
+          current_head_sha: headSha,
+          ...review
+        },
+        job_status: job,
+        pr_review_action: prAction
+      };
+    }
+    function demoIssue(number, overrides = {}) {
+      const repo = overrides.repo || "K2Lab/moras-console";
+      const review = overrides.review_status || {};
+      const job = overrides.job_status || {};
+      return {
+        changed_at: demoShortTime(overrides.minutesAgo == null ? 22 : overrides.minutesAgo),
+        repo,
+        item_type: "issue",
+        number,
+        title: overrides.title || "Demo issue",
+        url: `https://git.k2lab.ai/${repo}/issues/${number}`,
+        state: "open",
+        author: overrides.author || "Other.User",
+        relationship_labels: overrides.relationship_labels || ["assigned"],
+        relationships: {
+          created_by_me: false,
+          assigned_to_me: true,
+          review_requested_from_me: false,
+          participating: false,
+          related_to_me: true,
+          ...(overrides.relationships || {})
+        },
+        snapshot: {
+          repo,
+          item_type: "issue",
+          number,
+          title: overrides.title || "Demo issue",
+          url: `https://git.k2lab.ai/${repo}/issues/${number}`,
+          state: "open",
+          author: overrides.author || "Other.User",
+          updated: demoTime(overrides.minutesAgo == null ? 22 : overrides.minutesAgo),
+          assignees: ["Zang.YanYu"],
+          labels: overrides.labels || ["demo"],
+          linked_prs: overrides.linked_prs || [],
+          tracked_linked_prs: overrides.tracked_linked_prs || [],
+          resolved_by_merged_prs: false
+        },
+        review_status: review,
+        job_status: job,
+        pr_review_action: {}
+      };
+    }
+    function demoTaskForPr(item, status = "succeeded") {
+      const taskId = `demo-${item.repo.replace(/[^A-Za-z0-9]+/g, "-")}-pr-${item.number}`;
+      return {
+        task_id: taskId,
+        task_dir: taskId,
+        created_at: item.changed_at,
+        repo: item.repo,
+        item_type: "pull_request",
+        target_index: String(item.number),
+        target: String(item.number),
+        title: item.title,
+        url: item.url,
+        head_sha: item.snapshot.head_sha,
+        runtime_requested: "codex",
+        runtime_used: "codex",
+        runtime_status: status,
+        model: "gpt-5.5",
+        reasoning_effort: "xhigh",
+        posted: false,
+        review_path: `${taskId}/review.md`,
+        prompt_path: `${taskId}/prompt.md`,
+        record_path: `${taskId}/record.json`,
+        suggested_comment: "## PR Review\n\n| Field | Value |\n|---|---|\n| Decision | `COMMENT` |\n| Confidence | Demo |\n\n### Findings\n\n- Demo finding with **rendered markdown** and `inline code`.\n\n### Verdict\n\n`COMMENT` - demo draft ready for inspection.",
+        comment_body: "## PR Review\n\n| Field | Value |\n|---|---|\n| Decision | `COMMENT` |\n| Confidence | Demo |\n\n### Findings\n\n- Demo finding with **rendered markdown** and `inline code`.\n\n### Verdict\n\n`COMMENT` - demo draft ready for inspection.",
+        postable: true
+      };
+    }
+    function demoTaskForIssue(item) {
+      const taskId = `demo-${item.repo.replace(/[^A-Za-z0-9]+/g, "-")}-issue-${item.number}`;
+      return {
+        task_id: taskId,
+        task_dir: taskId,
+        created_at: item.changed_at,
+        repo: item.repo,
+        item_type: "issue",
+        target_index: String(item.number),
+        target: String(item.number),
+        title: item.title,
+        url: item.url,
+        runtime_requested: "codex",
+        runtime_used: "codex",
+        runtime_status: "succeeded",
+        model: "gpt-5.5",
+        reasoning_effort: "xhigh",
+        automation_decision: "easy-direct",
+        automation_status: "easy-direct-blocked",
+        strict_easy_gate_passed: true,
+        auto_fix_approval_available: true,
+        triage_scores: {difficulty: 1, workload: 2, importance: 2, complexity: 1},
+        posted: false,
+        suggested_comment: "## Issue Assessment\n\nDecision: `easy-direct-blocked`\n\nThe demo issue is small and ready for an approved auto-fix.",
+        comment_body: "## Issue Assessment\n\nDecision: `easy-direct-blocked`\n\nThe demo issue is small and ready for an approved auto-fix.",
+        postable: true
+      };
+    }
+    function demoJob(item, status, eventType = "pr_review_demo") {
+      const key = demoJobKey(item.repo, item.number, item.snapshot.head_sha || item.review_status.current_head_sha || "demo");
+      return {
+        created_at: demoShortTime(2),
+        updated_at: demoShortTime(1),
+        dedupe_key: key,
+        delivery_id: `${eventType}-${item.repo.replace(/[^A-Za-z0-9]+/g, "-")}-${item.number}`,
+        kind: item.item_type === "issue" ? "issue_auto_fix" : "pr_review",
+        kind_label: item.item_type === "issue" ? "Issue auto-fix" : "PR review",
+        status,
+        source_url: item.url,
+        retry_count: status === "failed" ? 1 : 0,
+        summary: status === "queued" ? "demo job queued" : status === "running" ? "demo job running" : status === "failed" ? "demo job failed" : "demo job done"
+      };
+    }
+    function demoChange(item, summary, eventKind = "demo") {
+      return {
+        created_at: demoShortTime(0),
+        repo: item.repo,
+        item_type: item.item_type,
+        number: item.number,
+        title: item.title,
+        url: item.url,
+        event_kind: eventKind,
+        summary
+      };
+    }
+    function demoScenario(scenario, number) {
+      if (scenario === "auto-review") {
+        const item = demoPr(number, scenario, {
+          title: "Auto-started PR review",
+          relationships: {review_requested_from_me: true},
+          job_status: {active: true, recent: true, kind: "pr_review", kind_label: "PR review", status: "queued", updated_at: demoShortTime(1), summary: "automatic PR review queued"}
+        });
+        return {item, job: demoJob(item, "queued"), change: demoChange(item, "review requested; queued automatic PR review", "review_requested")};
+      }
+      if (scenario === "running-review") {
+        const item = demoPr(number, scenario, {
+          title: "AI review currently running",
+          relationships: {review_requested_from_me: true},
+          job_status: {active: true, recent: true, kind: "pr_review", kind_label: "PR review", status: "running", updated_at: demoShortTime(0), summary: "codex review is running"}
+        });
+        return {item, job: demoJob(item, "running"), change: demoChange(item, "review job running", "job")};
+      }
+      if (scenario === "draft-ready") {
+        const taskId = `demo-K2Lab-moras-console-pr-${number}`;
+        const item = demoPr(number, scenario, {
+          title: "Review draft waiting for approval",
+          relationships: {participating: true},
+          review_status: {state: "local", label: "draft", task_id: taskId, task_dir: taskId, posted: false, runtime_status: "succeeded", latest_at: demoTime(3)}
+        });
+        const task = demoTaskForPr(item);
+        return {item, task, change: demoChange(item, "review draft ready", "draft")};
+      }
+      if (scenario === "failed-review") {
+        const taskId = `demo-K2Lab-moras-console-pr-${number}-failed`;
+        const item = demoPr(number, scenario, {
+          title: "Failed PR review with rerun available",
+          relationships: {review_requested_from_me: true},
+          job_status: {active: false, recent: true, kind: "pr_review", kind_label: "PR review", status: "failed", updated_at: demoShortTime(2), summary: "401 Unauthorized demo failure"},
+          review_status: {label: "failed", current_head_failed: true, failed_task_id: taskId, failed_task_dir: taskId, latest_task_id: taskId, latest_task_dir: taskId, runtime_status: "failed"},
+          pr_review_action: {available: true, reason: "failed review can be retried", head_sha: demoHash(number, scenario), dedupe_key: "", retry: true, retry_count: 1, retry_limit: 3}
+        });
+        item.pr_review_action.dedupe_key = demoJobKey(item.repo, item.number, item.snapshot.head_sha);
+        return {item, job: demoJob(item, "failed"), change: demoChange(item, "AI job failed", "job")};
+      }
+      if (scenario === "own-feedback") {
+        const item = demoPr(number, scenario, {
+          title: "My PR with new reviewer feedback",
+          relationships: {created_by_me: true},
+          author: "Zang.YanYu",
+          comments: [{id: `comment-${number}`, author: "Reviewer.Two", created: demoTime(1), updated: demoTime(1), body_hash: `demo-feedback-${number}`}],
+          reviews: [{id: `review-${number}`, reviewer: "Reviewer.Two", state: "COMMENT", created: demoTime(1), updated: demoTime(1)}]
+        });
+        return {item, change: demoChange(item, "external feedback arrived", "comment")};
+      }
+      if (scenario === "issue-assessment") {
+        const taskId = `demo-K2Lab-moras-console-issue-${number}`;
+        const item = demoIssue(number, {
+          title: "Easy issue assessment awaiting approval",
+          review_status: {
+            state: "easy-direct-blocked",
+            label: "easy-direct",
+            runtime_status: "succeeded",
+            automation_decision: "easy-direct",
+            automation_status: "easy-direct-blocked",
+            strict_easy_gate_passed: true,
+            auto_fix_approval_available: true,
+            task_id: taskId,
+            task_dir: taskId,
+            triage_scores: {difficulty: 1, workload: 2, importance: 2, complexity: 1},
+            latest_at: demoTime(8)
+          }
+        });
+        return {item, task: demoTaskForIssue(item), change: demoChange(item, "easy issue assessment ready", "assessment")};
+      }
+      const item = demoPr(number, "reviewed", {
+        title: "Reviewed PR ready for merge",
+        relationships: {participating: true},
+        review_status: {state: "done", label: "reviewed", reviewed: true, posted: true, reviewed_head_sha: demoHash(number, "reviewed"), current_head_sha: demoHash(number, "reviewed"), review_decision: "approved", latest_at: demoTime(20)}
+      });
+      return {item, job: demoJob(item, "done"), change: demoChange(item, "review posted", "reviewed")};
+    }
+    function demoInitialState() {
+      const scenarios = ["auto-review", "running-review", "draft-ready", "failed-review", "own-feedback", "issue-assessment", "reviewed"];
+      const data = {nextNumber: 920, monitoring: {enabled: true}, items: [], jobs: [], deliveries: [], tasks: [], events: []};
+      scenarios.forEach((scenario, index) => demoInsertScenario(data, scenario, 901 + index));
+      data.nextNumber = 920;
+      return data;
+    }
+    function demoInsertScenario(data, scenario, number = data.nextNumber++) {
+      const entry = demoScenario(scenario, number);
+      data.items.unshift(entry.item);
+      if (entry.job) data.jobs.unshift(entry.job);
+      if (entry.task) data.tasks.unshift(entry.task);
+      data.events.unshift(entry.change || demoChange(entry.item, "demo item created"));
+      data.deliveries.unshift({
+        created_at: demoShortTime(0),
+        updated_at: demoShortTime(0),
+        delivery_id: `demo-${scenario}-${number}`,
+        event_type: scenario,
+        dedupe_key: entry.item.item_type === "pull_request" ? demoJobKey(entry.item.repo, entry.item.number, entry.item.snapshot.head_sha || "demo") : `${entry.item.repo}#issue-${entry.item.number}`,
+        status: entry.job ? entry.job.status : "done",
+        summary: (entry.change || {}).summary || "demo item created"
+      });
+      return entry;
+    }
+    function demoLoadState() {
+      if (!DEMO_MODE) return null;
+      try {
+        const parsed = JSON.parse(localStorage.getItem(DEMO_STORAGE_KEY) || "null");
+        if (parsed && Array.isArray(parsed.items)) return parsed;
+      } catch (_) {
+      }
+      const seeded = demoInitialState();
+      demoSaveState(seeded);
+      return seeded;
+    }
+    function demoSaveState(data) {
+      if (!DEMO_MODE) return;
+      localStorage.setItem(DEMO_STORAGE_KEY, JSON.stringify(data));
+    }
+    function demoSummaryCounts(data) {
+      const openItems = data.items.filter(item => item.state === "open");
+      const countType = (items, type) => items.filter(item => item.item_type === type).length;
+      const latest = [...data.events].sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0];
+      return {
+        tracked: {issue: countType(data.items, "issue"), pull_request: countType(data.items, "pull_request")},
+        tracked_open: {issue: countType(openItems, "issue"), pull_request: countType(openItems, "pull_request")},
+        jobs: demoStatusCounts(data.jobs),
+        deliveries: demoStatusCounts(data.deliveries),
+        latest_tracked_event_at: latest ? latest.created_at : ""
+      };
+    }
+    function demoFilterItems(items, url) {
+      const type = url.searchParams.get("type") || "";
+      const relation = url.searchParams.get("relation") || "";
+      const stateFilter = url.searchParams.get("state") || "";
+      let values = [...items];
+      if (type) values = values.filter(item => item.item_type === type);
+      if (stateFilter === "open") values = values.filter(item => item.state === "open");
+      else if (stateFilter === "inactive") values = values.filter(item => item.state !== "open");
+      if (relation && relation !== "all") values = values.filter(item => relationshipMatches(item, relation));
+      return values;
+    }
+    function demoFindItem(data, repo, number, type = "pull_request") {
+      return data.items.find(item => item.repo === repo && Number(item.number) === Number(number) && item.item_type === type);
+    }
+    function demoQueueReview(data, repo, number) {
+      const item = demoFindItem(data, repo, number, "pull_request");
+      if (!item) return {status: "not_available", reason: "demo PR not found"};
+      const headSha = item.snapshot.head_sha || item.review_status.current_head_sha || demoHash(number, "queued");
+      item.job_status = {active: true, recent: true, kind: "pr_review", kind_label: "PR review", status: "queued", updated_at: demoShortTime(0), summary: "demo review queued"};
+      item.pr_review_action = {available: false, reason: "review job already queued", head_sha: headSha, job_status: "queued"};
+      item.changed_at = demoShortTime(0);
+      const job = demoJob(item, "queued", "pr_review_demo_manual");
+      data.jobs.unshift(job);
+      data.deliveries.unshift({created_at: demoShortTime(0), updated_at: demoShortTime(0), delivery_id: job.delivery_id, event_type: "pr_review_demo_manual", dedupe_key: job.dedupe_key, status: "queued", summary: "demo review queued"});
+      data.events.unshift(demoChange(item, "manual demo review queued", "job"));
+      return {status: "queued", job: "pr_review", key: job.dedupe_key};
+    }
+    function demoFindTask(data, taskRef) {
+      return data.tasks.find(task => task.task_id === taskRef || task.task_dir === taskRef) || null;
+    }
+    async function demoApi(path, options = {}) {
+      const data = demoLoadState();
+      const url = new URL(path, window.location.origin);
+      const method = String(options.method || "GET").toUpperCase();
+      const limit = Number(url.searchParams.get("limit") || "80");
+      if (method === "GET" && url.pathname === "/api/status") {
+        return clone({
+          config: {
+            runtime: "demo",
+            username: "Zang.YanYu",
+            username_aliases: [],
+            worker_count: 2,
+            webhook_url: "demo-local",
+            ngrok_public_url: "",
+            monitor_repos: ["K2Lab/moras-console", "K2Lab/moras-brain"],
+            monitor_seconds: 60,
+            poll_interval_seconds: 60,
+            issue_model: "gpt-5.5",
+            issue_reasoning_effort: "xhigh",
+            pr_review_model: "gpt-5.5",
+            pr_review_reasoning_effort: "xhigh",
+            comment_model: "gpt-5.5",
+            comment_reasoning_effort: "xhigh"
+          },
+          counts: demoSummaryCounts(data),
+          task_count: data.tasks.length,
+          monitoring: {enabled: data.monitoring.enabled !== false, controllable: true, monitor_alive: true, review_request_alive: false}
+        });
+      }
+      if (method === "GET" && url.pathname === "/api/items") return {items: clone(demoFilterItems(data.items, url).slice(0, limit))};
+      if (method === "GET" && url.pathname === "/api/changes") return {events: clone(data.events.slice(0, limit))};
+      if (method === "GET" && url.pathname === "/api/jobs") return {jobs: clone(data.jobs.slice(0, limit))};
+      if (method === "GET" && url.pathname === "/api/deliveries") return {deliveries: clone(data.deliveries.slice(0, limit))};
+      if (method === "GET" && url.pathname === "/api/tasks") return {tasks: clone(data.tasks.slice(0, limit))};
+      if (method === "GET" && url.pathname === "/api/task-review") {
+        const task = demoFindTask(data, url.searchParams.get("task") || "");
+        if (!task) throw new Error("demo task not found");
+        return {task: clone(task)};
+      }
+      const body = options.body ? JSON.parse(options.body) : {};
+      if (method === "POST" && url.pathname === "/api/monitoring/toggle") {
+        data.monitoring.enabled = Boolean(body.enabled);
+        demoSaveState(data);
+        return {monitoring: {enabled: data.monitoring.enabled, controllable: true}};
+      }
+      if (method === "POST" && url.pathname === "/api/monitor-once") {
+        demoInsertScenario(data, body.queue_actions === false ? "own-feedback" : "auto-review");
+        demoSaveState(data);
+        return {events: ["demo monitor inserted a mock item"], queued: body.queue_actions === false ? 0 : 1, processed: 0};
+      }
+      if (method === "POST" && url.pathname === "/api/pr-review/queue") {
+        const result = demoQueueReview(data, String(body.repo || ""), Number(body.number || 0));
+        demoSaveState(data);
+        return result;
+      }
+      if (method === "POST" && url.pathname === "/api/task-review/save") {
+        const task = demoFindTask(data, String(body.task || ""));
+        if (!task) throw new Error("demo task not found");
+        task.suggested_comment = String(body.suggested_comment || "");
+        task.comment_body = task.suggested_comment;
+        demoSaveState(data);
+        return {task: clone(task)};
+      }
+      if (method === "POST" && url.pathname === "/api/task-review/post") {
+        const task = demoFindTask(data, String(body.task || ""));
+        if (!task) throw new Error("demo task not found");
+        task.posted = true;
+        const item = demoFindItem(data, task.repo, task.target_index, task.item_type);
+        if (item && item.item_type === "pull_request") {
+          item.review_status = {...item.review_status, state: "done", label: "reviewed", reviewed: true, posted: true, review_decision: "approved", latest_at: demoTime(0)};
+          item.job_status = {active: false, recent: true, status: "done", kind: "pr_review", kind_label: "PR review", updated_at: demoShortTime(0)};
+          item.pr_review_action = {available: false, reason: "current head already reviewed", head_sha: item.snapshot.head_sha};
+          data.events.unshift(demoChange(item, "demo draft posted", "reviewed"));
+        }
+        demoSaveState(data);
+        return {repo: task.repo, target: task.target_index, task: clone(task)};
+      }
+      if (method === "POST" && url.pathname === "/api/issue-auto-fix/queue") {
+        const item = demoFindItem(data, String(body.repo || ""), Number(body.number || 0), "issue");
+        if (!item) throw new Error("demo issue not found");
+        item.job_status = {active: true, recent: true, kind: "issue_auto_fix", kind_label: "Issue auto-fix", status: "queued", updated_at: demoShortTime(0), summary: "demo auto-fix queued"};
+        const job = demoJob(item, "queued", "issue_auto_fix_demo");
+        data.jobs.unshift(job);
+        data.events.unshift(demoChange(item, "demo auto-fix queued", "job"));
+        demoSaveState(data);
+        return {status: "queued", job: "issue_auto_fix", key: job.dedupe_key};
+      }
+      if (method === "POST" && url.pathname === "/api/issue-human-handoff") {
+        const task = demoFindTask(data, String(body.task || ""));
+        if (!task) throw new Error("demo task not found");
+        demoSaveState(data);
+        return {task: clone(task)};
+      }
+      if (method === "POST" && url.pathname === "/api/scan-stale-issues") {
+        demoInsertScenario(data, "issue-assessment");
+        demoSaveState(data);
+        return {events: ["demo stale scan inserted an issue assessment"], queued: 1, processed: 0};
+      }
+      throw new Error(`demo endpoint not implemented: ${method} ${url.pathname}`);
+    }
+    function bindDemoControls() {
+      if (!DEMO_MODE) return;
+      document.querySelectorAll("[data-demo-add]").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          const scenario = btn.dataset.demoAdd || "auto-review";
+          const data = demoLoadState();
+          const entry = demoInsertScenario(data, scenario);
+          demoSaveState(data);
+          state.selectedAttentionKey = attentionNeeded(entry.item) ? itemKey(entry.item) : "";
+          state.selectedDraftTask = entry.task ? (entry.task.task_id || entry.task.task_dir || "") : "";
+          state.loadedDraftRef = "";
+          state.loadedDraftTask = null;
+          state.draftDirty = false;
+          await refreshAll();
+          toast("Demo item created", btn.textContent || scenario, "ok");
+        });
+      });
+      const reset = $("demo-reset");
+      if (reset) {
+        reset.addEventListener("click", async () => {
+          localStorage.removeItem(DEMO_STORAGE_KEY);
+          state.selectedAttentionKey = "";
+          state.selectedDraftTask = "";
+          state.loadedDraftRef = "";
+          state.loadedDraftTask = null;
+          state.draftDirty = false;
+          await refreshAll();
+          toast("Demo reset", "Seed data restored", "ok");
+        });
+      }
+    }
     async function api(path, options = {}) {
+      if (DEMO_MODE) return demoApi(path, options);
       const res = await fetch(path, options);
       const text = await res.text();
       let data = {};
@@ -4341,6 +4908,7 @@
         await refreshAll();
       } catch (err) { toast(err.message); }
     });
+    bindDemoControls();
     window.addEventListener("resize", () => requestAnimationFrame(fitKanbanToWindow));
     refreshAll();
     setInterval(refreshAll, 5000);
