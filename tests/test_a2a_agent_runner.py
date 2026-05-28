@@ -4075,6 +4075,16 @@ Old reviewer comment that must not become a draft.
         self.assertIn("repoShortName(match[1])", ui)
         self.assertIn("toast(data);", ui[queue_handler_start:queue_start])
 
+    def test_dashboard_background_refresh_does_not_toast_fetch_failures(self):
+        ui = a2a_runner.load_ui_html()
+        refresh_start = ui.index("async function refreshAll")
+        refresh_end = ui.index("function setView", refresh_start)
+        refresh_logic = ui[refresh_start:refresh_end]
+
+        self.assertIn("const quiet = options.quiet === true;", refresh_logic)
+        self.assertIn("if (!quiet) toast(err.message);", refresh_logic)
+        self.assertIn("setInterval(() => refreshAll({quiet: true}), 5000);", ui)
+
     def test_dashboard_has_manual_pr_review_queue_action(self):
         ui = a2a_runner.load_ui_html()
 

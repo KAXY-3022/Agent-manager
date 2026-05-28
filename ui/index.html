@@ -4777,11 +4777,14 @@
       if (taskRef) await loadDraft(taskRef);
       else clearDraftPane();
     }
-    async function refreshAll() {
+    async function refreshAll(options = {}) {
+      const quiet = options.quiet === true;
       try {
         await loadStatus();
         await Promise.all([loadBoard(), loadChanges(), loadItems(), loadJobs(), loadDeliveries(), loadTasks()]);
-      } catch (err) { toast(err.message); }
+      } catch (err) {
+        if (!quiet) toast(err.message);
+      }
     }
     function setView(view, options = {}) {
       state.view = view;
@@ -4911,7 +4914,7 @@
     bindDemoControls();
     window.addEventListener("resize", () => requestAnimationFrame(fitKanbanToWindow));
     refreshAll();
-    setInterval(refreshAll, 5000);
+    setInterval(() => refreshAll({quiet: true}), 5000);
   </script>
 </body>
 </html>
