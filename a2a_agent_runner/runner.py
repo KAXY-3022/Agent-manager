@@ -5547,7 +5547,7 @@ class WebhookBridge:
             self._stop.wait(self.config.monitor_poll_seconds)
 
     def monitor_once(self, *, queue_actions: bool = True) -> list[str]:
-        return self.discovery_once(queue_actions=queue_actions) + self.active_pr_once(queue_actions=queue_actions)
+        return self.discovery_once(queue_actions=queue_actions)
 
     def discovery_once(self, *, queue_actions: bool = True) -> list[str]:
         events: list[str] = []
@@ -5671,28 +5671,18 @@ class WebhookBridge:
                     aliases=self.config.username_aliases,
                     own_branch_prefixes=self.config.own_branch_prefixes,
                 )
-                if self.config.monitor_pr_reviews and pr_review_newly_requested_or_head_changed(
+                events.extend(self._handle_pr_snapshot_actions(
+                    repo_slug_value,
+                    number,
                     previous_snapshot,
                     snapshot,
+                    pr_data,
+                    current_relationships,
                     expected_usernames,
-                ) and not current_relationships.get("created_by_me"):
-                    if queue_actions:
-                        response = self._queue_automatic_pr_review_from_snapshot(
-                            repo_slug_value,
-                            number,
-                            pr_data,
-                            snapshot,
-                            current_relationships,
-                            event_type="pr_review_discovery",
-                            delivery_prefix="discovery",
-                        )
-                        if response.status_code == 202:
-                            events.append(f"{repo_slug_value} PR#{number}: review requested; queued automatic PR review")
-                        else:
-                            reason = response.body.get("reason") or response.body.get("status") or "not available"
-                            events.append(f"{repo_slug_value} PR#{number}: review requested; skipped automatic PR review: {reason}")
-                    else:
-                        events.append(f"{repo_slug_value} PR#{number}: review requested")
+                    queue_actions=queue_actions,
+                    event_type="pr_review_discovery",
+                    delivery_prefix="discovery",
+                ))
             except Exception as exc:
                 logging.warning("discovery PR fetch failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
         events.extend(self._reconcile_tracked_prs(repo_slug_value, open_pr_numbers))
@@ -5787,6 +5777,102 @@ class WebhookBridge:
                 events.append(f"{repo_slug_value} issue#{number}: stale issue scan failed: {exc}")
         return events
 
+    def _handle_pr_snapshot_actions(
+        self,
+        repo_slug_value: str,
+        number: int,
+        previous_snapshot: dict[str, Any] | None,
+        snapshot: dict[str, Any],
+        pr_data: dict[str, Any],
+        current_relationships: dict[str, bool],
+        expected_usernames: set[str],
+        *,
+        queue_actions: bool,
+        event_type: str,
+        delivery_prefix: str,
+    ) -> list[str]:
+        events: list[str] = []
+        previous_relationships = snapshot_relationships(
+            previous_snapshot or {},
+            self.config.username,
+            aliases=self.config.username_aliases,
+            own_branch_prefixes=self.config.own_branch_prefixes,
+        )
+        related = bool(previous_relationships.get("related_to_me") or current_relationships.get("related_to_me"))
+        if not related or not self.config.monitor_pr_reviews:
+            return events
+
+        if current_relationships.get("created_by_me"):
+            return events
+
+        if pr_review_newly_requested_or_head_changed(previous_snapshot, snapshot, expected_usernames):
+            if queue_actions:
+                response = self._queue_automatic_pr_review_from_snapshot(
+                    repo_slug_value,
+                    number,
+                    pr_data,
+                    snapshot,
+                    current_relationships,
+                    event_type=event_type,
+                    delivery_prefix=delivery_prefix,
+                )
+                if response.status_code == 202:
+                    events.append(f"{repo_slug_value} PR#{number}: review requested; queued automatic PR review")
+                else:
+                    reason = response.body.get("reason") or response.body.get("status") or "not available"
+                    events.append(f"{repo_slug_value} PR#{number}: review requested; skipped automatic PR review: {reason}")
+            else:
+                events.append(f"{repo_slug_value} PR#{number}: review requested")
+            return events
+
+        retry_low_confidence = pr_review_current_head_low_confidence_needs_retry(
+            repo_slug_value,
+            number,
+            str(snapshot.get("head_sha") or ""),
+        )
+        if current_relationships.get("review_requested_from_me") and retry_low_confidence:
+            events.append(f"{repo_slug_value} PR#{number}: review retry available")
+            return events
+
+        current_head_sha = str(snapshot.get("head_sha") or "")
+        current_head_key = f"{repo_slug_value}#{number}@{current_head_sha}"
+        current_review_status = review_status_for_item(
+            repo_slug_value,
+            "pull_request",
+            number,
+            current_head_sha,
+            snapshot=snapshot,
+            username=self.config.username,
+            aliases=self.config.username_aliases,
+        )
+        current_head_job_status = self.store.job_status_for_key(current_head_key)
+        if (
+            current_relationships.get("review_requested_from_me")
+            and current_head_sha
+            and current_head_sha != "unknown"
+            and not current_review_status.get("reviewed")
+            and not current_review_status.get("current_head_failed")
+            and self.store.has_ignored_active_job_delivery(current_head_key)
+            and not can_queue_pr_comment_reply(
+                repo_slug_value,
+                number,
+                previous_snapshot,
+                snapshot,
+                expected_usernames,
+            )
+            and current_head_job_status not in {"queued", "running", "done"}
+        ):
+            events.append(f"{repo_slug_value} PR#{number}: current-head review available")
+            return events
+
+        if can_queue_pr_comment_reply(repo_slug_value, number, previous_snapshot, snapshot, expected_usernames):
+            base_key = f"{repo_slug_value}#{number}@{snapshot.get('head_sha') or ''}"
+            if self.store.job_status_for_key(base_key) in {"queued", "running"}:
+                events.append(f"{repo_slug_value} PR#{number}: skipped comment reply while head review is active")
+                return events
+            events.append(f"{repo_slug_value} PR#{number}: comment reply review available")
+        return events
+
     def _active_pr_repo(self, repo_slug_value: str, *, queue_actions: bool = True) -> list[str]:
         events: list[str] = []
         expected_usernames = username_candidates(self.config.username, self.config.username_aliases)
@@ -5808,105 +5894,33 @@ class WebhookBridge:
                     aliases=self.config.username_aliases,
                     own_branch_prefixes=self.config.own_branch_prefixes,
                 )
-                previous_relationships = snapshot_relationships(
-                    previous_snapshot or {},
-                    self.config.username,
-                    aliases=self.config.username_aliases,
-                    own_branch_prefixes=self.config.own_branch_prefixes,
-                )
                 current_relationships = snapshot_relationships(
                     snapshot,
                     self.config.username,
                     aliases=self.config.username_aliases,
                     own_branch_prefixes=self.config.own_branch_prefixes,
                 )
-                related = bool(
-                    previous_relationships.get("related_to_me") or current_relationships.get("related_to_me")
-                )
                 summary = self.store.record_tracking_snapshot(snapshot)
                 if summary:
                     events.append(f"{repo_slug_value} PR#{number}: {summary}")
-                if not related or not self.config.monitor_pr_reviews:
-                    continue
-
-                if current_relationships.get("created_by_me"):
-                    continue
-
-                if pr_review_newly_requested_or_head_changed(previous_snapshot, snapshot, expected_usernames):
-                    if queue_actions:
-                        response = self._queue_automatic_pr_review_from_snapshot(
-                            repo_slug_value,
-                            number,
-                            pr_data,
-                            snapshot,
-                            current_relationships,
-                            event_type="pr_review_active",
-                            delivery_prefix="active",
-                        )
-                        if response.status_code == 202:
-                            events.append(f"{repo_slug_value} PR#{number}: review requested; queued automatic PR review")
-                        else:
-                            reason = response.body.get("reason") or response.body.get("status") or "not available"
-                            events.append(f"{repo_slug_value} PR#{number}: review requested; skipped automatic PR review: {reason}")
-                    else:
-                        events.append(f"{repo_slug_value} PR#{number}: review requested")
-                    continue
-
-                retry_low_confidence = pr_review_current_head_low_confidence_needs_retry(
+                events.extend(self._handle_pr_snapshot_actions(
                     repo_slug_value,
                     number,
-                    str(snapshot.get("head_sha") or ""),
-                )
-                if current_relationships.get("review_requested_from_me") and retry_low_confidence:
-                    events.append(f"{repo_slug_value} PR#{number}: review retry available")
-                    continue
-
-                current_head_sha = str(snapshot.get("head_sha") or "")
-                current_head_key = f"{repo_slug_value}#{number}@{current_head_sha}"
-                current_review_status = review_status_for_item(
-                    repo_slug_value,
-                    "pull_request",
-                    number,
-                    current_head_sha,
-                    snapshot=snapshot,
-                    username=self.config.username,
-                    aliases=self.config.username_aliases,
-                )
-                current_head_job_status = self.store.job_status_for_key(current_head_key)
-                if (
-                    current_relationships.get("review_requested_from_me")
-                    and current_head_sha
-                    and current_head_sha != "unknown"
-                    and not current_review_status.get("reviewed")
-                    and not current_review_status.get("current_head_failed")
-                    and self.store.has_ignored_active_job_delivery(current_head_key)
-                    and not can_queue_pr_comment_reply(
-                        repo_slug_value,
-                        number,
-                        previous_snapshot,
-                        snapshot,
-                        expected_usernames,
-                    )
-                    and current_head_job_status not in {"queued", "running", "done"}
-                ):
-                    events.append(f"{repo_slug_value} PR#{number}: current-head review available")
-                    continue
-
-                if can_queue_pr_comment_reply(repo_slug_value, number, previous_snapshot, snapshot, expected_usernames):
-                    base_key = f"{repo_slug_value}#{number}@{snapshot.get('head_sha') or ''}"
-                    if self.store.job_status_for_key(base_key) in {"queued", "running"}:
-                        events.append(f"{repo_slug_value} PR#{number}: skipped comment reply while head review is active")
-                        continue
-                    events.append(f"{repo_slug_value} PR#{number}: comment reply review available")
+                    previous_snapshot,
+                    snapshot,
+                    pr_data,
+                    current_relationships,
+                    expected_usernames,
+                    queue_actions=queue_actions,
+                    event_type="pr_review_active",
+                    delivery_prefix="active",
+                ))
             except Exception as exc:
                 logging.warning("active PR fetch failed repo=%s pr=%s error=%s", repo_slug_value, number, exc)
         return events
 
     def _monitor_repo(self, repo_slug_value: str, *, queue_actions: bool = True) -> list[str]:
-        return self._discovery_repo(repo_slug_value, queue_actions=queue_actions) + self._active_pr_repo(
-            repo_slug_value,
-            queue_actions=queue_actions,
-        )
+        return self._discovery_repo(repo_slug_value, queue_actions=queue_actions)
 
     def _reconcile_tracked_issues(self, repo_slug_value: str, open_numbers: set[int]) -> list[str]:
         events: list[str] = []
